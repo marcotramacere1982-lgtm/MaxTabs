@@ -5,12 +5,12 @@ import { isDenominator, isNoteValue, tryDurationTicks, type Duration } from './t
 import { barLengthTicks } from './timeline';
 import { getScale } from './scales';
 import { getChordQuality } from './harmony';
+import { getInstrumentType } from './instruments';
 import type { Cursor, EditorDoc, Song } from './song';
 
 export const LIMITS = {
   bars: 2048,
   tracks: 16,
-  strings: { min: 4, max: 8 },
   frets: 36,
   bpm: { min: 10, max: 1000 },
   numerator: 32,
@@ -126,10 +126,11 @@ export function validateSong(input: unknown): Song {
     const trackPath = `Track ${t + 1}`;
     check(isObject(track), trackPath, 'track must be an object');
     check(typeof track.name === 'string' && track.name.length <= LIMITS.name, trackPath, 'invalid name');
-    check(typeof track.instrumentId === 'string', trackPath, 'invalid instrument');
+    const instrument = typeof track.instrumentId === 'string' ? getInstrumentType(track.instrumentId) : undefined;
+    check(instrument, trackPath, 'unknown instrument');
     const tuning = track.tuning;
-    check(Array.isArray(tuning) && tuning.length >= LIMITS.strings.min && tuning.length <= LIMITS.strings.max &&
-      tuning.every(m => isInt(m, 0, 127)), trackPath, 'invalid tuning');
+    check(Array.isArray(tuning) && tuning.length === instrument.stringCount &&
+      tuning.every(m => isInt(m, 0, 127)), trackPath, `tuning must have ${instrument.stringCount} strings`);
     check(Array.isArray(track.bars) && track.bars.length === bars.length, trackPath,
       'bar count does not match the timeline');
 

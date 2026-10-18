@@ -19,6 +19,9 @@
       <label for="instrument-select">Instrument</label>
       <select id="instrument-select" aria-label="Select instrument"></select>
 
+      <label for="tuning-select">Tuning</label>
+      <select id="tuning-select" aria-label="Select tuning"></select>
+
       <label for="fret-count">Frets</label>
       <select id="fret-count" aria-label="Select number of frets">
         <option value="12">12</option>
@@ -155,6 +158,26 @@
       </div>
     </section>
   </main>
+
+  <dialog id="remap-dialog" class="remap-dialog" aria-labelledby="remap-title">
+    <form method="dialog">
+      <h2 id="remap-title">Change instrument or tuning</h2>
+      <p id="remap-message"></p>
+      <div class="remap-choices">
+        <button value="pitch" autofocus>
+          <strong>Keep pitches</strong>
+          <span>Notes sound the same; some move to other frets or strings.</span>
+        </button>
+        <button value="fret">
+          <strong>Keep fret numbers</strong>
+          <span>The tab stays as written and sounds in the new tuning.</span>
+        </button>
+      </div>
+      <div class="remap-footer">
+        <button value="cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
 
   <footer class="app-footer">
     <p>MaxTabs — alpha</p>

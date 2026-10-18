@@ -17,7 +17,8 @@ import {
   type Timeline,
   type TrackBar
 } from './song';
-import type { InstrumentDef } from './instruments';
+import { requireInstrumentType } from './instruments';
+import { remapTrack, type RemapMode, type RemapReport } from './remap';
 
 export function eventTicks(event: TabEvent): number {
   return durationTicks(event.duration);
@@ -146,16 +147,19 @@ export function clearNotes(doc: EditorDoc): void {
 }
 
 /**
- * Switch the main track's instrument. Notes keep their string and fret when the string count
- * matches; otherwise they are cleared. Returns true when notes were cleared.
+ * Switch the main track to another instrument and/or tuning, re-placing its notes (see RemapMode).
+ * The cursor stays put; dropped notes can leave rests behind.
  */
-export function setInstrument(doc: EditorDoc, instrument: InstrumentDef): boolean {
+export function setInstrument(doc: EditorDoc, instrumentId: string, tuning: readonly number[],
+  mode: RemapMode): RemapReport {
+  const type = requireInstrumentType(instrumentId);
+  if (tuning.length !== type.stringCount)
+    throw new Error(`${type.name} needs ${type.stringCount} strings, not ${tuning.length}.`);
   const track = mainTrack(doc.song);
-  const cleared = track.tuning.length !== instrument.tuning.length;
-  if (cleared) clearNotes(doc);
-  track.instrumentId = instrument.id;
-  track.tuning = [...instrument.tuning];
-  return cleared;
+  const barLengths = doc.song.timeline.bars.map(bar => barLengthTicks(bar.time));
+  const report = remapTrack(track, tuning, mode, barLengths);
+  track.instrumentId = instrumentId;
+  return report;
 }
 
 export function hasTempoChanges(song: Song): boolean {

@@ -4,6 +4,7 @@ import { isNoteValue, type Duration } from '../model/time';
 import { validateCursor, validateSong } from '../model/validate';
 import type { EditorDoc } from '../model/song';
 import { migrateV1 } from './projectV1';
+import { resolveLegacyInstrument } from '../model/instruments';
 
 export const PROJECT_FORMAT = 'maxtabs-project';
 export const PROJECT_VERSION = 2;
@@ -70,9 +71,20 @@ export function parseProject(input: unknown): LoadedProject {
   if (typeof v2.title !== 'string' || v2.title.length > 120) throw new Error('Invalid project title.');
   const doc = v2.doc as Partial<Record<keyof EditorDoc, unknown>> | null | undefined;
   if (!doc || typeof doc !== 'object') throw new Error('Missing project data.');
+  upgradeInstrumentIds(doc.song);
   const song = validateSong(doc.song);
   const cursor = validateCursor(song, doc.cursor);
   return { title: v2.title, doc: { song, cursor }, view: parseViewPrefs(v2.view) };
+}
+
+/** Early v2 files used per-tuning instrument ids ("guitar-drop-d"); map them to instrument types. */
+function upgradeInstrumentIds(song: unknown): void {
+  const tracks = (song as { tracks?: unknown } | null)?.tracks;
+  if (!Array.isArray(tracks)) return;
+  for (const track of tracks as { instrumentId?: unknown }[]) {
+    const legacy = typeof track?.instrumentId === 'string' ? resolveLegacyInstrument(track.instrumentId) : undefined;
+    if (legacy) track.instrumentId = legacy.instrumentId;
+  }
 }
 
 /** Lenient: invalid or missing preferences fall back to defaults rather than rejecting the file. */

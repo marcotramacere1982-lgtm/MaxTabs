@@ -2,11 +2,12 @@ import fixtureJson from './fixtures/metronomo-test.json';
 import { History } from '../src/model/history';
 import { createDoc, type EditorDoc } from '../src/model/song';
 import { validateDoc } from '../src/model/validate';
-import { requireInstrument } from '../src/model/instruments';
+import { requireTuningPreset } from '../src/model/instruments';
 import type { Duration, NoteValue } from '../src/model/time';
 
-export const GUITAR = requireInstrument('guitar-standard');
-export const BASS = requireInstrument('bass-standard');
+export const GUITAR = { id: 'guitar-6', tuning: requireTuningPreset('guitar-6/standard').notes };
+export const BASS = { id: 'bass-4', tuning: requireTuningPreset('bass-4/standard').notes };
+export const DROP_D = requireTuningPreset('guitar-6/drop-d').notes;
 
 /** A fresh copy of the metronomo-composto sample: 5/4, 7/8, 2/8 at 120 quarter BPM. */
 export const metronomoFixture = (): typeof fixtureJson => structuredClone(fixtureJson);

@@ -60,3 +60,16 @@ phone screens and prints cleanly to PDF. VexFlow stays an option for standard no
   are rejected. Raising PPQ to 6720 would allow them if ever needed.
 - **Interim grid view:** until the SVG renderer (Phase 3), each tab row splits into
   columns as fine as its shortest note, so rows with 32nds get very wide.
+
+## 2026-10-19 — Instruments and tunings (Phase 2)
+- A track stores an instrument type (`guitar-6`, `guitar-7`, `bass-4`, `bass-5`) and
+  its open-string pitches. Tuning names are not stored: a tuning is recognised by
+  matching its pitches to a preset, otherwise it shows as "Custom". Older ids
+  (`guitar-standard`, `guitar-drop-d`, `bass-standard`) are mapped on load.
+- Changing instrument or tuning with notes present asks the user:
+  **keep pitches** (re-finger: same string if reachable, else the free string whose
+  fret is closest to the original) or **keep fret numbers**. Notes on strings the new
+  instrument lacks are always placed by pitch. Notes with no position within 24 frets
+  are removed and reported; ties that no longer join matching notes are removed.
+  The change is one undo step.
+- Phase 3 starts with a deep visual restyle (user request), not just new components.

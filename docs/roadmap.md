@@ -21,10 +21,13 @@
 - [x] UI rewired: 16th/32nd and dotted durations, redo, undoable import/reset/instrument change
 
 ## Phase 2 — Instruments
-- [ ] Data-driven registry: 6/7-string guitar, 4/5-string bass, alternate tunings
-- [ ] Per-project tuning; confirm and remap notes on instrument change
+- [x] Registry: 6/7-string guitar, 4/5-string bass, 25 preset tunings
+- [x] Per-project tuning, recognised by its notes ("Custom" when no preset matches)
+- [x] Instrument/tuning change asks: keep pitches (re-finger) or keep fret numbers; undoable
 
 ## Phase 3 — UI
+- [ ] Deep visual restyle of the whole app (requested 2026-10-19): design system first,
+      then the components below built on it
 - [ ] SVG tab renderer
 - [ ] Free cursor navigation and in-place editing
 - [ ] Responsive, touch-friendly fretboard
@@ -44,5 +47,6 @@
 - [ ] Techniques (hammer-on, pull-off, slide, bend, vibrato, palm mute)
 - [ ] Realistic guitar/bass sound
 - [ ] Tap tempo
-- [ ] More tunings and instruments; capo
+- [ ] Custom tuning editor (model already accepts any tuning)
+- [ ] More instruments (8-string, 6-string bass, baritone); capo
 - [ ] Standard notation

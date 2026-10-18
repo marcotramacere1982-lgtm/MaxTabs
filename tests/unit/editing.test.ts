@@ -10,9 +10,8 @@ import {
   setChord,
   setInstrument
 } from '../../src/model/editing';
-import { requireInstrument } from '../../src/model/instruments';
 import { mainTrack } from '../../src/model/song';
-import { BASS, d, metronomoFixture, newHistory } from '../helpers';
+import { BASS, d, DROP_D, metronomoFixture, newHistory } from '../helpers';
 
 const E3 = [{ string: 6, fret: 3 }];
 
@@ -120,14 +119,22 @@ describe('document commands', () => {
     expect(history.present.song.timeline.bars).toHaveLength(2);
   });
 
-  it('keeps notes when the string count matches, clears them otherwise', () => {
+  it('changes instrument and tuning, re-placing notes', () => {
     const history = newHistory();
     history.apply(doc => insertEvent(doc, E3, d(4)));
-    expect(history.apply(doc => setInstrument(doc, requireInstrument('guitar-drop-d')))).toBe(false);
-    expect(mainTrack(history.present.song).bars[0]?.events).toHaveLength(1);
-    expect(history.apply(doc => setInstrument(doc, BASS))).toBe(true);
-    expect(mainTrack(history.present.song).bars[0]?.events).toHaveLength(0);
+    const report = history.apply(doc => setInstrument(doc, 'guitar-6', DROP_D, 'pitch'));
+    expect(report).toMatchObject({ moved: 1, dropped: 0 });
+    // G2 on a drop-D low string is fret 5.
+    expect(mainTrack(history.present.song).bars[0]?.events[0]?.notes).toEqual([{ string: 6, fret: 5 }]);
+    history.apply(doc => setInstrument(doc, BASS.id, BASS.tuning, 'pitch'));
+    expect(mainTrack(history.present.song).instrumentId).toBe('bass-4');
     expect(mainTrack(history.present.song).tuning).toEqual(BASS.tuning);
+    expect(history.present.cursor).toEqual({ bar: 0, index: 1 });
+  });
+
+  it('refuses a tuning with the wrong number of strings', () => {
+    const history = newHistory();
+    expect(() => history.apply(doc => setInstrument(doc, 'guitar-7', DROP_D, 'pitch'))).toThrow(/7 strings/);
   });
 
   it('resets an imported chart to free 4/4 at its opening tempo', () => {

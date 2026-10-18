@@ -2,7 +2,17 @@ import './styles/main.css';
 import { History } from './model/history';
 import { createDoc, mainTrack, type EditorDoc, type Note } from './model/song';
 import { validateDoc } from './model/validate';
-import { DEFAULT_INSTRUMENT_ID, INSTRUMENTS, requireInstrument } from './model/instruments';
+import {
+  DEFAULT_INSTRUMENT_ID,
+  defaultTuning,
+  findTuningPreset,
+  INSTRUMENT_TYPES,
+  requireInstrumentType,
+  requireTuningPreset,
+  tuningsFor
+} from './model/instruments';
+import { pitchClassName, pitchClassOf } from './model/pitch';
+import type { RemapReport } from './model/remap';
 import { SCALES, TONICS } from './model/scales';
 import { durationCode, durationName, parseDurationCode, type Duration } from './model/time';
 import {
@@ -24,6 +34,7 @@ import { renderFretboard } from './ui/fretboard';
 import { renderTab, updateTabPlayback } from './ui/tabEditor';
 import { setupProjectFiles } from './ui/projectFiles';
 import { setupMenu } from './ui/menu';
+import { askRemapMode } from './ui/remapDialog';
 import { byId } from './ui/dom';
 import type { FretboardNote, UiState } from './ui/uiState';
 import { playPreviewNote, playSong, stopPlayback } from './audio/playback';
@@ -43,7 +54,7 @@ const DURATION_CHOICES: Duration[] = [
 ];
 
 const history = new History<EditorDoc>(
-  createDoc(DEFAULT_INSTRUMENT_ID, requireInstrument(DEFAULT_INSTRUMENT_ID).tuning),
+  createDoc(DEFAULT_INSTRUMENT_ID, defaultTuning(DEFAULT_INSTRUMENT_ID).notes),
   validateDoc
 );
 
@@ -66,6 +77,7 @@ const elements = {
   selectedNote: byId('selected-note'),
 
   instrumentSelect: byId<HTMLSelectElement>('instrument-select'),
+  tuningSelect: byId<HTMLSelectElement>('tuning-select'),
   fretCountSelect: byId<HTMLSelectElement>('fret-count'),
 
   scaleOverlayToggle: byId<HTMLInputElement>('scale-overlay-toggle'),
@@ -100,7 +112,14 @@ function init(): void {
   elements.rhythmFile.addEventListener('change', handleRhythmImport);
   elements.rhythmReset.addEventListener('click', handleRhythmReset);
 
-  elements.instrumentSelect.addEventListener('change', handleInstrumentChange);
+  elements.instrumentSelect.addEventListener('change', () => {
+    const instrumentId = elements.instrumentSelect.value;
+    void changeInstrument(instrumentId, defaultTuning(instrumentId).notes);
+  });
+  elements.tuningSelect.addEventListener('change', () => {
+    const tuning = requireTuningPreset(elements.tuningSelect.value);
+    void changeInstrument(tuning.instrumentId, tuning.notes);
+  });
   elements.fretCountSelect.addEventListener('change', () => {
     if (isPlaying) return;
     ui.view.fretCount = Number(elements.fretCountSelect.value);
@@ -154,7 +173,7 @@ function init(): void {
 }
 
 function populateControls(): void {
-  for (const instrument of INSTRUMENTS) {
+  for (const instrument of INSTRUMENT_TYPES) {
     elements.instrumentSelect.append(new Option(instrument.name, instrument.id));
   }
 
@@ -182,7 +201,9 @@ function populateControls(): void {
 /** Copy document and view state into the form controls. */
 function syncControlsFromState(): void {
   const { song } = history.present;
-  elements.instrumentSelect.value = mainTrack(song).instrumentId;
+  const track = mainTrack(song);
+  elements.instrumentSelect.value = track.instrumentId;
+  populateTunings(track.instrumentId, track.tuning);
   elements.fretCountSelect.value = String(ui.view.fretCount);
   elements.durationSelect.value = durationCode(ui.view.duration);
   elements.tempoInput.value = String(song.tempo.bpm);
@@ -246,16 +267,67 @@ function handleFretboardNoteClick(note: FretboardNote): void {
   insert([{ string: note.string, fret: note.fret }]);
 }
 
-function handleInstrumentChange(): void {
-  if (isPlaying) return;
-  let cleared = false;
-  const instrument = requireInstrument(elements.instrumentSelect.value);
-  if (edit(doc => { cleared = setInstrument(doc, instrument); })) {
-    ui.selectedNote = null;
-    elements.playbackStatus.textContent = cleared
-      ? 'Notes cleared: the new instrument has a different number of strings. Undo to restore them.'
-      : 'Ready';
+/** Open-string names, lowest first: "D A D G B E". */
+function tuningNoteNames(notes: readonly number[]): string {
+  return notes.map(midi => pitchClassName(pitchClassOf(midi))).join(' ');
+}
+
+/** Fill the tuning list for an instrument, adding a "Custom" entry when the tuning matches no preset. */
+function populateTunings(instrumentId: string, notes: readonly number[]): void {
+  const select = elements.tuningSelect;
+  select.replaceChildren();
+  for (const tuning of tuningsFor(instrumentId)) {
+    select.append(new Option(`${tuning.name} — ${tuningNoteNames(tuning.notes)}`, tuning.id));
   }
+  const preset = findTuningPreset(instrumentId, notes);
+  if (preset) {
+    select.value = preset.id;
+  } else {
+    const custom = new Option(`Custom — ${tuningNoteNames(notes)}`, '');
+    custom.disabled = true;
+    select.prepend(custom);
+    select.value = '';
+  }
+}
+
+function describeTuning(instrumentId: string, notes: readonly number[]): string {
+  const preset = findTuningPreset(instrumentId, notes);
+  return `${requireInstrumentType(instrumentId).name}, ${preset ? preset.name : 'custom'} tuning`;
+}
+
+function describeRemap(report: RemapReport): string {
+  const parts: string[] = [];
+  if (report.moved) parts.push(`${report.moved} note${report.moved === 1 ? '' : 's'} moved`);
+  if (report.dropped) parts.push(`${report.dropped} note${report.dropped === 1 ? '' : 's'} removed (no playable position)`);
+  if (report.tiesBroken) parts.push(`${report.tiesBroken} tie${report.tiesBroken === 1 ? '' : 's'} removed`);
+  return parts.length ? `${parts.join(', ')}. Undo to restore.` : 'Ready';
+}
+
+async function changeInstrument(instrumentId: string, notes: readonly number[]): Promise<void> {
+  const track = mainTrack(history.present.song);
+  const unchanged = track.instrumentId === instrumentId &&
+    track.tuning.length === notes.length && track.tuning.every((n, i) => n === notes[i]);
+  if (isPlaying || unchanged) {
+    syncControlsFromState();
+    return;
+  }
+
+  let mode: 'pitch' | 'fret' | null = 'fret';
+  if (hasNotes()) {
+    mode = await askRemapMode(`This song has notes. How should they move to ${describeTuning(instrumentId, notes)}?`);
+  }
+  if (mode === null || isPlaying) {
+    syncControlsFromState();
+    return;
+  }
+
+  let report: RemapReport | undefined;
+  const chosen = mode;
+  if (edit(doc => { report = setInstrument(doc, instrumentId, notes, chosen); }) && report) {
+    ui.selectedNote = null;
+    elements.playbackStatus.textContent = describeRemap(report);
+  }
+  syncControlsFromState();
   renderApp();
 }
 
@@ -288,6 +360,8 @@ function handleClear(): void {
 
 function handleShortcut(event: KeyboardEvent): void {
   if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  // A modal dialog is waiting for an answer; editing underneath it would invalidate that answer.
+  if (document.querySelector('dialog[open]')) return;
   const target = event.target as HTMLElement | null;
   // Leave undo inside text fields to the browser.
   if (target && (target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' &&
@@ -424,6 +498,7 @@ function updateControls(): void {
   elements.stopButton.disabled = !isPlaying;
 
   elements.instrumentSelect.disabled = isPlaying;
+  elements.tuningSelect.disabled = isPlaying;
   elements.fretCountSelect.disabled = isPlaying;
   elements.durationSelect.disabled = isPlaying;
   // A tempo map is edited bar by bar (later); the single BPM field only drives songs without one.

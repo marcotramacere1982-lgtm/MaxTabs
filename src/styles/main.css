@@ -758,3 +758,51 @@ button:active:not(:disabled) {
     flex: 1 1 10rem;
   }
 }
+/* Instrument/tuning change dialog */
+.remap-dialog {
+  max-width: 32rem;
+  padding: 1.25rem;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.remap-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.remap-dialog h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.remap-dialog p {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+}
+
+.remap-choices {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.remap-choices button {
+  display: grid;
+  gap: 0.2rem;
+  text-align: left;
+  padding: 0.75rem 0.9rem;
+}
+
+.remap-choices button span {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.remap-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}

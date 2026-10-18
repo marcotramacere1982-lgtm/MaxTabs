@@ -15,9 +15,9 @@ export function setupMenu(): void {
     projectDestination.append(projectToolbar);
   }
 
-  // Move only Instrument and Frets.
+  // Move only Instrument, Tuning and Frets.
   // Scale controls remain visible in the header.
-  for (const id of ['instrument-select', 'fret-count']) {
+  for (const id of ['instrument-select', 'tuning-select', 'fret-count']) {
     const label = document.querySelector(`label[for="${id}"]`);
     const control = document.getElementById(id);
 
@@ -38,9 +38,10 @@ export function setupMenu(): void {
     rhythmDestination.append(rhythmToolbar);
   }
 
-  // Close when clicking outside.
+  // Close when clicking outside (but not when answering a dialog the menu opened).
   document.addEventListener('click', (event) => {
-    if (menu.open && !menu.contains(event.target as Node)) {
+    const target = event.target as Element;
+    if (menu.open && !menu.contains(target) && !target.closest('dialog')) {
       menu.open = false;
     }
   });

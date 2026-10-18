@@ -113,3 +113,22 @@ describe('migration from v1', () => {
     expect(() => parseProject(v1File({ events: [v1Event(1, 7, 2, 0)], cursorSlot: 9 }))).toThrow(/Invalid event timing/);
   });
 });
+
+describe('instrument ids from early v2 files', () => {
+  it('maps per-tuning ids to instrument types', () => {
+    const file = JSON.parse(JSON.stringify(serializeProject('x', newDoc(), defaultViewPrefs())));
+    file.doc.song.tracks[0].instrumentId = 'guitar-drop-d';
+    file.doc.song.tracks[0].tuning = [38, 45, 50, 55, 59, 64];
+    const track = mainTrack(parseProject(file).doc.song);
+    expect(track.instrumentId).toBe('guitar-6');
+    expect(track.tuning).toEqual([38, 45, 50, 55, 59, 64]);
+  });
+
+  it('rejects unknown instruments and tunings with the wrong string count', () => {
+    const file = JSON.parse(JSON.stringify(serializeProject('x', newDoc(), defaultViewPrefs())));
+    file.doc.song.tracks[0].instrumentId = 'banjo';
+    expect(() => parseProject(file)).toThrow(/unknown instrument/);
+    file.doc.song.tracks[0].instrumentId = 'bass-5';
+    expect(() => parseProject(file)).toThrow(/5 strings/);
+  });
+});

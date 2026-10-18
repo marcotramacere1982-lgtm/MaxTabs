@@ -1,6 +1,6 @@
 // Version 1 project files (the alpha's eighth-note slot model): validation and upgrade to v2.
 
-import { getInstrument } from '../model/instruments';
+import { resolveLegacyInstrument } from '../model/instruments';
 import { getScale } from '../model/scales';
 import { createTrack, type BarDef, type Cursor, type EditorDoc, type Song, type TempoMark, type TrackBar } from '../model/song';
 import type { Denominator, NoteValue } from '../model/time';
@@ -50,7 +50,7 @@ export function migrateV1(input: unknown): Omit<LoadedProject, 'migratedFrom'> {
   const p = doc.project as Record<string, unknown> | null | undefined;
   require(p && typeof p === 'object', 'Missing project data.');
 
-  const instrument = typeof p.instrumentId === 'string' ? getInstrument(p.instrumentId) : undefined;
+  const instrument = typeof p.instrumentId === 'string' ? resolveLegacyInstrument(p.instrumentId) : undefined;
   require(instrument, 'Unknown instrument.');
   require(oneOf([12, 15, 17, 22], p.fretCount), 'Invalid fret count.');
   require(number(p.bpm, 20, 300), 'Invalid BPM.');
@@ -131,7 +131,7 @@ export function migrateV1(input: unknown): Omit<LoadedProject, 'migratedFrom'> {
     return def;
   });
 
-  const track = createTrack('Track 1', instrument.id, instrument.tuning, 0);
+  const track = createTrack('Track 1', instrument.instrumentId, instrument.notes, 0);
   track.bars = trackBars;
   const song: Song = {
     tempo: first,
