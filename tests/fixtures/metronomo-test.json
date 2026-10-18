@@ -1,0 +1,48 @@
+{
+  "app": "metronomo-composto",
+  "version": 1,
+  "name": "test",
+  "bpm": 120,
+  "perBar": false,
+  "unit": "quarter",
+  "bars": [
+    {
+      "num": 5,
+      "den": 4,
+      "bpm": null,
+      "acc": [
+        2,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rep": 1
+    },
+    {
+      "num": 7,
+      "den": 8,
+      "bpm": null,
+      "acc": [
+        2,
+        0,
+        1,
+        0,
+        1,
+        0,
+        0
+      ],
+      "rep": 1
+    },
+    {
+      "num": 2,
+      "den": 8,
+      "bpm": null,
+      "acc": [
+        2,
+        0
+      ],
+      "rep": 1
+    }
+  ]
+}

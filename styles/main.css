@@ -1,0 +1,760 @@
+/* Design tokens */
+:root {
+  --bg: #101418;
+  --panel: #171d23;
+  --panel-alt: #1e262e;
+  --border: #2c3640;
+  --text: #e8edf2;
+  --text-muted: #9aa7b4;
+  --accent: #4cc38a;
+  --accent-strong: #2f9e6d;
+  --danger: #e5534b;
+  --focus: #67b0f4;
+
+  --radius: 10px;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Base */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(circle at top right, rgba(76, 195, 138, 0.08), transparent 35%),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.5;
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Layout */
+.app-header,
+.app-main,
+.app-footer {
+  width: min(1180px, calc(100% - 2rem));
+  margin-inline: auto;
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem 0 1rem;
+}
+
+.app-title h1 {
+  margin: 0;
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  letter-spacing: -0.02em;
+}
+
+.app-subtitle {
+  margin: 0.15rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.instrument-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.instrument-controls label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.app-main {
+  display: grid;
+  gap: 1rem;
+  padding-bottom: 2rem;
+}
+
+.app-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  padding-bottom: 2rem;
+}
+
+.app-main>.panel {
+  min-width: 0;
+}
+
+/* Panels */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1rem;
+}
+
+.panel-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.panel-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.panel-header .panel-hint {
+  width: 100%;
+}
+
+/* Controls */
+select,
+input[type="number"] {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 0.45rem 0.6rem;
+}
+
+button {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 0.5rem 0.85rem;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+button:hover:not(:disabled) {
+  background: #26303a;
+  border-color: #3d4a56;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+#play-button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #08120d;
+  font-weight: 650;
+}
+
+#play-button:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+#clear-button:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: #ffb4b0;
+}
+
+/* Fretboard */
+.fretboard {
+  display: grid;
+  gap: 0.35rem;
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+}
+
+.fretboard-row {
+  display: grid;
+  grid-template-columns: 3.2rem repeat(var(--fret-count), minmax(2.1rem, 1fr));
+  gap: 0.2rem;
+  align-items: center;
+  min-width: max-content;
+}
+
+.string-label {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  text-align: right;
+  padding-right: 0.4rem;
+}
+
+.fret {
+  aspect-ratio: 1 / 1;
+  min-height: 34px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  padding: 0;
+}
+
+.fret:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.fret[data-fret="0"] {
+  border-style: dashed;
+}
+
+.fret.is-selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #08120d;
+  font-weight: 700;
+}
+
+.fret.is-playing {
+  background: #f6bd60;
+  border-color: #f6bd60;
+  box-shadow: 0 0 0.7rem rgba(246, 189, 96, 0.55);
+  color: #17110a;
+  font-weight: 800;
+}
+
+.fret.is-selected.is-playing {
+  background: linear-gradient(135deg, var(--accent) 50%, #f6bd60 50%);
+  border-color: #f6bd60;
+  color: #08120d;
+}
+
+.fretboard-marker-row {
+  display: grid;
+  grid-template-columns: 3.2rem repeat(var(--fret-count), minmax(2.1rem, 1fr));
+  gap: 0.2rem;
+  margin-top: 0.25rem;
+  min-width: max-content;
+}
+
+.fret-marker {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+.selection-status {
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* ---------------------------------------------------------------------------
+   Tab layout and density controls
+--------------------------------------------------------------------------- */
+
+.bar-density-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bar-density-controls>span {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.bar-density-controls button {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  font-size: 1.1rem;
+}
+
+#bars-per-row-display {
+  min-width: 1.2rem;
+  color: var(--text);
+  font-family: var(--mono);
+  text-align: center;
+}
+
+.tab-editor {
+  --tab-background: #0b0f13;
+
+  background: var(--tab-background);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  overflow-x: auto;
+  padding: 1rem;
+  min-height: 220px;
+}
+
+.tab-empty {
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 0.9rem;
+  margin: 0 0 1rem;
+}
+
+.tab-system+.tab-system {
+  margin-top: 1.5rem;
+}
+
+.tab-grid {
+  display: grid;
+  grid-template-columns:
+    2rem repeat(var(--slot-count), minmax(1.65rem, 1fr));
+
+  width: 100%;
+  min-width: max-content;
+}
+
+/* Bar numbers */
+.tab-bar-label {
+  height: 1.5rem;
+  color: #8996a3;
+  font-family: var(--font);
+  font-size: 0.72rem;
+  padding-left: 0.35rem;
+}
+
+/* String labels and beat headers */
+.tab-grid-label,
+.tab-grid-header-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+.tab-grid-label {
+  color: var(--text-muted);
+  font-weight: 600;
+  justify-content: flex-end;
+  padding-right: 0.5rem;
+}
+
+.tab-grid-header-cell {
+  height: 1.6rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+/* One rhythmic slot on one string */
+.tab-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.8rem;
+  min-width: 0;
+  color: var(--accent);
+}
+
+/* Continuous string through the centre of each cell */
+.tab-cell::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #46515b;
+  pointer-events: none;
+}
+
+/* Mask the string line behind each fret number */
+.tab-fret-number {
+  position: relative;
+  z-index: 1;
+  background: var(--tab-background);
+  padding: 0 0.2rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* Bar lines */
+.tab-grid-header-cell.is-bar-start,
+.tab-cell.is-bar-start {
+  border-left: 1px solid #697582;
+}
+
+.tab-grid-header-cell.is-bar-end,
+.tab-cell.is-bar-end {
+  border-right: 1px solid #697582;
+}
+
+/* Quiet beat boundaries */
+.tab-grid-header-cell.is-beat-end,
+.tab-cell.is-beat-end {
+  border-right: 1px solid rgba(185, 196, 207, 0.08);
+}
+
+/* Next insertion position */
+.tab-cell.is-edit-cursor {
+  background: rgba(103, 176, 244, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(103, 176, 244, 0.4);
+}
+
+/* Playback position */
+.tab-cell.is-playhead {
+  background: rgba(246, 189, 96, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(246, 189, 96, 0.55);
+}
+
+.tab-cell.is-playhead .tab-fret-number {
+  color: #ffe0a3;
+}
+
+/* Transport */
+.transport-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.tempo-control {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.tempo-control label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.tempo-control input {
+  width: 5rem;
+}
+
+.playback-status {
+  margin-top: 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Footer */
+.app-footer {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding-bottom: 2rem;
+  text-align: center;
+}
+
+.rhythm-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+  padding: 0.7rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.duration-control {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.duration-control label,
+.cursor-display {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.cursor-display {
+  margin: 0 0 0 auto;
+}
+
+@media (max-width: 560px) {
+  .cursor-display {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+#stop-button:disabled {
+  opacity: 0.4;
+}
+
+#playback-status {
+  min-height: 1.5em;
+}
+
+.scale-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.scale-toggle input {
+  accent-color: var(--accent);
+}
+
+/* Scale overlay: quiet guidance, not an active selection */
+.fret.is-scale-tone {
+  background: rgba(139, 120, 190, 0.06);
+  border-color: rgba(139, 120, 190, 0.16);
+  color: #858096;
+  font-weight: 400;
+}
+
+.fret.is-scale-root {
+  background: rgba(139, 120, 190, 0.14);
+  border-color: rgba(139, 120, 190, 0.28);
+  color: #b2a6cd;
+  box-shadow: none;
+  font-weight: 600;
+}
+
+/* Only bring the hint forward when the pointer is on it */
+.fret.is-scale-tone:hover:not(:disabled) {
+  background: rgba(139, 120, 190, 0.18);
+  border-color: rgba(139, 120, 190, 0.38);
+  color: #d0c7e3;
+}
+
+.fret.is-selected,
+.fret.is-selected:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #08120d;
+  font-weight: 700;
+}
+
+.fret.is-playing,
+.fret.is-playing:hover:not(:disabled) {
+  background: #f6bd60;
+  border-color: #f6bd60;
+  box-shadow: 0 0 0.7rem rgba(246, 189, 96, 0.55);
+  color: #17110a;
+  font-weight: 800;
+}
+
+.fret.is-selected.is-playing,
+.fret.is-selected.is-playing:hover:not(:disabled) {
+  background: #f6bd60;
+  border-color: #f6bd60;
+  color: #17110a;
+}
+
+/* Rhythm import and metronome */
+.tab-grid-header-cell.accent-2 {
+  color: #d0d8df;
+  font-weight: 800;
+}
+
+.tab-grid-header-cell.accent-1 {
+  color: #a6b6c4;
+  font-weight: 650;
+}
+
+.tab-bar-label {
+  white-space: nowrap;
+  font-size: 0.67rem;
+  overflow: hidden;
+}
+
+#rhythm-file {
+  max-width: 100%;
+  font-size: 0.85rem;
+}
+
+#click-volume {
+  width: 6rem;
+  accent-color: var(--accent);
+}
+
+.transport-controls label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.project-controls>label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+#project-title {
+  flex: 1 1 12rem;
+  min-width: 0;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 0.45rem 0.6rem;
+}
+
+#project-status {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* Header settings disclosure */
+.app-header {
+  position: relative;
+}
+
+.app-menu {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.app-menu>summary {
+  list-style: none;
+  cursor: pointer;
+
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+
+  color: var(--text);
+  padding: 0.5rem 0.8rem;
+  user-select: none;
+}
+
+.app-menu>summary::-webkit-details-marker {
+  display: none;
+}
+
+.app-menu[open]>summary {
+  border-color: var(--accent);
+}
+
+.app-menu-panel {
+  position: absolute;
+  z-index: 100;
+  top: 100%;
+  right: 0;
+
+  width: min(34rem, 100%);
+  max-height: 70vh;
+  overflow-y: auto;
+
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+
+  padding: 1rem;
+}
+
+.menu-section+.menu-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.menu-section h2 {
+  margin: 0 0 0.65rem;
+  font-size: 0.95rem;
+}
+
+.app-menu-panel .rhythm-controls {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.app-menu-panel .project-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.app-menu-panel #project-title {
+  flex: 1 1 12rem;
+}
+
+.app-menu-panel #project-status,
+.app-menu-panel #rhythm-status {
+  flex-basis: 100%;
+}
+
+.menu-instrument-controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.menu-instrument-controls label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.file-picker-label {
+  flex-basis: 100%;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+#project-open,
+.app-menu-panel #rhythm-file {
+  width: 100%;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 600px) {
+  .app-menu-panel {
+    width: 100%;
+    max-height: 65vh;
+  }
+
+  .app-menu-panel .project-controls>button {
+    flex: 1 1 10rem;
+  }
+}

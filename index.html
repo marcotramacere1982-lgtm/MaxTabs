@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guitar & Bass Tab Builder</title>
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+</head>
+
+<body>
+  <header class="app-header">
+    <div class="app-title">
+      <h1>Guitar & Bass Tab Builder</h1>
+      <p class="app-subtitle">Click the fretboard to build a tab</p>
+    </div>
+
+    <div class="instrument-controls">
+      <label for="instrument-select">Instrument</label>
+      <select id="instrument-select" aria-label="Select instrument">
+        <option value="guitar-standard">Guitar — Standard</option>
+        <option value="guitar-drop-d">Guitar — Drop D</option>
+        <option value="bass-standard">Bass — Standard</option>
+      </select>
+
+      <label for="fret-count">Frets</label>
+      <select id="fret-count" aria-label="Select number of frets">
+        <option value="12">12</option>
+        <option value="15" selected>15</option>
+        <option value="17">17</option>
+        <option value="22">22</option>
+      </select>
+
+      <label class="scale-toggle" for="scale-overlay-toggle">
+        <input id="scale-overlay-toggle" type="checkbox">
+        Show scale
+      </label>
+
+      <label for="scale-tonic-select">Tonic</label>
+      <select id="scale-tonic-select" disabled></select>
+
+      <label for="scale-select">Scale</label>
+      <select id="scale-select" disabled></select>
+    </div>
+    <details id="app-menu" class="app-menu">
+      <summary>☰ Menu</summary>
+
+      <div class="app-menu-panel">
+        <section class="menu-section">
+          <h2>Project</h2>
+          <div id="menu-project-controls"></div>
+        </section>
+
+        <section class="menu-section">
+          <h2>Instrument</h2>
+          <div id="menu-instrument-controls" class="menu-instrument-controls"></div>
+        </section>
+
+        <section class="menu-section">
+          <h2>Rhythm chart</h2>
+          <div id="menu-rhythm-controls"></div>
+        </section>
+      </div>
+    </details>
+  </header>
+
+  <main class="app-main">
+    <section class="panel fretboard-panel" aria-labelledby="fretboard-heading">
+      <div class="panel-header">
+        <h2 id="fretboard-heading">Fretboard</h2>
+        <p class="panel-hint">Click a fret to insert a note at the cursor.</p>
+      </div>
+
+      <div id="fretboard" class="fretboard" role="group" aria-label="Clickable guitar fretboard"></div>
+
+      <div class="selection-status">
+        <span id="selected-note">No note selected</span>
+      </div>
+    </section>
+
+    <section class="panel tab-panel" aria-labelledby="tab-heading">
+      <div class="panel-header">
+        <h2 id="tab-heading">Tab</h2>
+
+        <div class="tab-tools">
+          <button id="undo-button" type="button" disabled>Undo</button>
+          <button id="clear-button" type="button" disabled>Clear</button>
+        </div>
+      </div>
+
+      <div class="rhythm-controls project-controls">
+        <label for="project-title">Project</label>
+
+        <input id="project-title" type="text" maxlength="120" value="Untitled" placeholder="Project title">
+
+        <button id="project-save" type="button">Save in browser</button>
+        <button id="project-load" type="button">Load browser save</button>
+        <button id="project-export" type="button">Export project JSON</button>
+        <label class="file-picker-label" for="project-open">Open project JSON</label>
+        <input id="project-open" type="file" accept=".json,application/json">
+
+        <span id="project-status" class="panel-hint" role="status" aria-live="polite"></span>
+      </div>
+
+      <div class="rhythm-controls">
+        <div class="duration-control">
+          <label for="duration-select">Duration</label>
+          <select id="duration-select">
+            <option value="1" selected>Eighth note</option>
+            <option value="2">Quarter note</option>
+            <option value="4">Half note</option>
+            <option value="8">Whole note</option>
+          </select>
+        </div>
+
+        <button id="rest-button" type="button">Insert Rest</button>
+
+        <div class="bar-density-controls" role="group" aria-label="Bars per row">
+          <span>Bars per row</span>
+
+          <button id="fewer-bars-button" type="button" aria-label="Show fewer bars per row">−</button>
+          <output id="bars-per-row-display" aria-live="polite">4</output>
+          <button id="more-bars-button" type="button" aria-label="Show more bars per row">+</button>
+        </div>
+
+        <p id="cursor-display" class="cursor-display">
+          Cursor: Bar 1, beat 1
+        </p>
+      </div>
+
+      <div class="rhythm-controls">
+        <label for="rhythm-file">Import rhythm JSON</label>
+        <input id="rhythm-file" type="file" accept=".json,application/json">
+        <button id="rhythm-reset" type="button">New free 4/4</button>
+        <span id="rhythm-status" class="panel-hint" aria-live="polite"></span>
+      </div>
+
+      <div id="tab-editor" class="tab-editor" aria-label="Tab editor"></div>
+    </section>
+
+    <section class="panel transport-panel" aria-labelledby="transport-heading">
+      <div class="panel-header">
+        <h2 id="transport-heading">Transport</h2>
+      </div>
+
+      <div class="transport-controls">
+        <button id="play-button" type="button">Play</button>
+        <button id="stop-button" type="button">Stop</button>
+        <button id="tap-tempo-button" type="button" disabled title="Not implemented yet">Tap Tempo</button>
+        <label><input id="metronome-toggle" type="checkbox" checked> Metronome</label>
+        <label for="click-volume">Click volume</label>
+        <input id="click-volume" type="range" min="0" max="0.6" step="0.01" value="0.3">
+
+        <div class="tempo-control">
+          <label for="tempo-input">BPM</label>
+          <input id="tempo-input" type="number" min="20" max="300" value="120">
+        </div>
+      </div>
+
+      <div class="playback-status">
+        <span id="playback-status">Ready</span>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>Prototype — fretboard, tab editing, and timing will be added incrementally.</p>
+  </footer>
+
+  <script type="module" src="scripts/main.js"></script>
+</body>
+
+</html>
