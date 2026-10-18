@@ -28,37 +28,36 @@ with later support for standard music notation.
 The app should have one internal sequence model, with tab, notation,
 and playback treated as separate views or outputs.
 
-## Data model
-Each musical event should contain:
+## Data model (src/model/song.ts)
 
-```json
-{
-  "id": "event-1",
-  "startBeat": 0,
-  "durationBeats": 1,
-  "notes": [
-    {
-      "string": 6,
-      "fret": 3,
-      "midi": 43
-    }
-  ],
-  "techniques": [],
-  "label": "G"
-}
+```
+Song
+├─ tempo: TempoMark            opening tempo (bpm, beat unit, dotted)
+├─ key: Key                    opening key (tonic pitch class, scale id)
+├─ timeline
+│  ├─ extendable               free charts grow; imported charts are fixed
+│  └─ bars[]: BarDef           time signature, accents, and optional tempo/key/chord changes
+└─ tracks[]
+   ├─ instrumentId, tuning[]   open-string MIDI pitches, lowest first
+   └─ bars[] (one per timeline bar)
+      └─ events[]: { duration, notes[] }   no notes = rest
+                    note = { string, fret, tie? }
 ```
 
-## Modules (src/)
-- `types.ts`: shared model types
-- `state.ts`: application state, instruments and event editing
-- `timeline.ts`: bars, slot/seconds conversion
-- `scales.ts`: scale and mode definitions
-- `fretboard.ts`: clickable fretboard and scale overlay
-- `tabEditor.ts`: tab rendering
-- `playback.ts` / `metronome.ts`: Web Audio scheduling and synthesis
-- `projectFiles.ts`: browser save/load, JSON export/import and validation
-- `importers/metronomoComposto.ts`: rhythm chart import
-- `menu.ts`, `dom.ts`, `errors.ts`, `main.ts`: UI wiring
+Time is measured in ticks, 960 per quarter note. Event positions are derived by summing
+durations within a bar. The editor document is `{ song, cursor }`; the cursor is an
+insertion point `{ bar, index }`.
+
+## Layers
+- `src/model/` — pure TypeScript, no DOM. Unit-tested.
+  - `time.ts` ticks and durations; `timeline.ts` bar layout and tick/second conversion
+  - `song.ts` document types; `editing.ts` commands; `history.ts` undo/redo
+  - `harmony.ts` chords, keys, transposition; `scales.ts`; `pitch.ts`; `instruments.ts`
+  - `schedule.ts` song → timed notes and clicks; `validate.ts` structural checks
+- `src/io/` — project format v2 (`projectFormat.ts`), v1 migration (`projectV1.ts`),
+  metronomo-composto import.
+- `src/ui/` — DOM rendering and controls; `src/audio/` — Web Audio playback.
+- `src/main.ts` — wires UI events to model commands through `History`.
 
 ## Development order
 1. Fretboard and note insertion

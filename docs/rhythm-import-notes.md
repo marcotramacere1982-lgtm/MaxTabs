@@ -1,6 +1,6 @@
 # Rhythm import and metronome (alpha notes)
 
-Notes from the increment that added metronomo-composto import. Still accurate for the current slot-based model.
+Notes from the alpha increment that added metronomo-composto import. Superseded in part by Phase 1: time is now in ticks, denominators 16 and 32 are accepted, import/reset are undoable (no confirmation prompts), and the BPM field stays editable for imported charts without tempo changes.
 
 ## Features
 - Import metronomo-composto version 1 JSON as an empty chart.

@@ -17,11 +17,7 @@
 
     <div class="instrument-controls">
       <label for="instrument-select">Instrument</label>
-      <select id="instrument-select" aria-label="Select instrument">
-        <option value="guitar-standard">Guitar — Standard</option>
-        <option value="guitar-drop-d">Guitar — Drop D</option>
-        <option value="bass-standard">Bass — Standard</option>
-      </select>
+      <select id="instrument-select" aria-label="Select instrument"></select>
 
       <label for="fret-count">Frets</label>
       <select id="fret-count" aria-label="Select number of frets">
@@ -29,6 +25,7 @@
         <option value="15" selected>15</option>
         <option value="17">17</option>
         <option value="22">22</option>
+        <option value="24">24</option>
       </select>
 
       <label class="scale-toggle" for="scale-overlay-toggle">
@@ -83,7 +80,8 @@
         <h2 id="tab-heading">Tab</h2>
 
         <div class="tab-tools">
-          <button id="undo-button" type="button" disabled>Undo</button>
+          <button id="undo-button" type="button" disabled title="Undo (Ctrl+Z)">Undo</button>
+          <button id="redo-button" type="button" disabled title="Redo (Ctrl+Y or Ctrl+Shift+Z)">Redo</button>
           <button id="clear-button" type="button" disabled>Clear</button>
         </div>
       </div>
@@ -105,12 +103,7 @@
       <div class="rhythm-controls">
         <div class="duration-control">
           <label for="duration-select">Duration</label>
-          <select id="duration-select">
-            <option value="1" selected>Eighth note</option>
-            <option value="2">Quarter note</option>
-            <option value="4">Half note</option>
-            <option value="8">Whole note</option>
-          </select>
+          <select id="duration-select"></select>
         </div>
 
         <button id="rest-button" type="button">Insert Rest</button>
@@ -152,7 +145,7 @@
         <input id="click-volume" type="range" min="0" max="0.6" step="0.01" value="0.3">
 
         <div class="tempo-control">
-          <label for="tempo-input">BPM</label>
+          <label id="tempo-label" for="tempo-input">BPM</label>
           <input id="tempo-input" type="number" min="20" max="300" value="120">
         </div>
       </div>
@@ -164,7 +157,7 @@
   </main>
 
   <footer class="app-footer">
-    <p>Prototype — fretboard, tab editing, and timing will be added incrementally.</p>
+    <p>MaxTabs — alpha</p>
   </footer>
 
   <script type="module" src="/src/main.ts"></script>

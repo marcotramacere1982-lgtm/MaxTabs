@@ -1,35 +1,59 @@
 import './styles/main.css';
-import { importMetronomo } from './importers/metronomoComposto';
+import { History } from './model/history';
+import { createDoc, mainTrack, type EditorDoc, type Note } from './model/song';
+import { validateDoc } from './model/validate';
+import { DEFAULT_INSTRUMENT_ID, INSTRUMENTS, requireInstrument } from './model/instruments';
+import { SCALES, TONICS } from './model/scales';
+import { durationCode, durationName, parseDurationCode, type Duration } from './model/time';
 import {
-  addNoteEvent,
-  applyRhythmChart,
-  setBarsPerRow,
-  addRestEvent,
-  clearEvents,
-  clearPlaybackPosition,
-  createState,
-  getCursorPosition,
-  setFretCount,
+  clearNotes,
+  cursorPosition,
+  hasTempoChanges,
+  insertEvent,
+  replaceTimeline,
+  resetToFreeTimeline,
   setInstrument,
-  setPlaybackPosition,
-  setScaleId,
-  setScaleOverlayEnabled,
-  setScaleTonic,
-  setSelectedDuration,
-  undoLastEvent
-} from './state';
-
-import { TONICS, SCALES } from './scales';
-import { renderFretboard } from './fretboard';
-import { renderTab, updateTabPlayback } from './tabEditor';
-import { playPreviewNote, playSequence, stopPlayback } from './playback';
-import { setupProjectFiles } from './projectFiles';
-import { setupMenu } from './menu';
-import { byId } from './dom';
+  setSongKey,
+  setTempoBpm
+} from './model/editing';
+import { subdivisionLabel } from './model/timeline';
+import { eventAtTick, placeEvents } from './model/schedule';
+import { importMetronomo } from './io/metronomoComposto';
+import { defaultViewPrefs, type LoadedProject } from './io/projectFormat';
+import { renderFretboard } from './ui/fretboard';
+import { renderTab, updateTabPlayback } from './ui/tabEditor';
+import { setupProjectFiles } from './ui/projectFiles';
+import { setupMenu } from './ui/menu';
+import { byId } from './ui/dom';
+import type { FretboardNote, UiState } from './ui/uiState';
+import { playPreviewNote, playSong, stopPlayback } from './audio/playback';
 import { errorMessage } from './errors';
-import type { FretboardNote } from './types';
 
-const state = createState();
+/** Durations offered in the editor, longest first. */
+const DURATION_CHOICES: Duration[] = [
+  { value: 1, dots: 0 },
+  { value: 2, dots: 1 },
+  { value: 2, dots: 0 },
+  { value: 4, dots: 1 },
+  { value: 4, dots: 0 },
+  { value: 8, dots: 1 },
+  { value: 8, dots: 0 },
+  { value: 16, dots: 0 },
+  { value: 32, dots: 0 }
+];
+
+const history = new History<EditorDoc>(
+  createDoc(DEFAULT_INSTRUMENT_ID, requireInstrument(DEFAULT_INSTRUMENT_ID).tuning),
+  validateDoc
+);
+
+const ui: UiState = {
+  get doc() { return history.present; },
+  view: defaultViewPrefs(),
+  selectedNote: null,
+  playbackTick: null,
+  activeNotes: []
+};
 
 const elements = {
   rhythmFile: byId<HTMLInputElement>('rhythm-file'),
@@ -53,11 +77,13 @@ const elements = {
   cursorDisplay: byId('cursor-display'),
 
   undoButton: byId<HTMLButtonElement>('undo-button'),
+  redoButton: byId<HTMLButtonElement>('redo-button'),
   clearButton: byId<HTMLButtonElement>('clear-button'),
 
   playButton: byId<HTMLButtonElement>('play-button'),
   stopButton: byId<HTMLButtonElement>('stop-button'),
   tempoInput: byId<HTMLInputElement>('tempo-input'),
+  tempoLabel: byId<HTMLLabelElement>('tempo-label'),
   playbackStatus: byId('playback-status'),
 
   fewerBarsButton: byId<HTMLButtonElement>('fewer-bars-button'),
@@ -68,341 +94,330 @@ const elements = {
 let isPlaying = false;
 
 function init(): void {
-  // Populate the tonic and scale dropdowns.
-  populateScaleControls();
-
-  // Set initial control values.
+  populateControls();
   syncControlsFromState();
 
-  // Rhythm import and reset.
   elements.rhythmFile.addEventListener('change', handleRhythmImport);
   elements.rhythmReset.addEventListener('click', handleRhythmReset);
 
-  // Instrument and fretboard size.
   elements.instrumentSelect.addEventListener('change', handleInstrumentChange);
-  elements.fretCountSelect.addEventListener('change', handleFretCountChange);
-
-  // Tab display density.
-  elements.fewerBarsButton.addEventListener('click', () => {
-    changeBarsPerRow(-1);
+  elements.fretCountSelect.addEventListener('change', () => {
+    if (isPlaying) return;
+    ui.view.fretCount = Number(elements.fretCountSelect.value);
+    ui.selectedNote = null;
+    renderApp();
   });
 
-  elements.moreBarsButton.addEventListener('click', () => {
-    changeBarsPerRow(1);
+  elements.fewerBarsButton.addEventListener('click', () => changeBarsPerRow(-1));
+  elements.moreBarsButton.addEventListener('click', () => changeBarsPerRow(1));
+
+  elements.scaleOverlayToggle.addEventListener('change', () => {
+    ui.view.overlayEnabled = elements.scaleOverlayToggle.checked;
+    updateScaleControlAvailability();
+    renderFretboardOnly();
   });
+  elements.scaleTonicSelect.addEventListener('change', handleKeyChange);
+  elements.scaleSelect.addEventListener('change', handleKeyChange);
 
-  // Scale overlay.
-  elements.scaleOverlayToggle.addEventListener('change', handleScaleOverlayToggle);
-  elements.scaleTonicSelect.addEventListener('change', handleScaleTonicChange);
-  elements.scaleSelect.addEventListener('change', handleScaleChange);
-
-  // Note duration and editing.
-  elements.durationSelect.addEventListener('change', handleDurationChange);
-  elements.restButton.addEventListener('click', handleInsertRest);
+  elements.durationSelect.addEventListener('change', () => {
+    ui.view.duration = parseDurationCode(elements.durationSelect.value);
+  });
+  elements.restButton.addEventListener('click', () => insert([]));
   elements.undoButton.addEventListener('click', handleUndo);
+  elements.redoButton.addEventListener('click', handleRedo);
   elements.clearButton.addEventListener('click', handleClear);
 
-  // Playback and tempo.
   elements.playButton.addEventListener('click', handlePlay);
   elements.stopButton.addEventListener('click', handleStop);
-  elements.tempoInput.addEventListener('change', handleTempoChange);
+  elements.tempoInput.addEventListener('change', commitTempo);
 
-  // Metronome settings.
   elements.metronomeToggle.addEventListener('change', () => {
-    state.metronomeEnabled = elements.metronomeToggle.checked;
+    ui.view.metronomeEnabled = elements.metronomeToggle.checked;
+  });
+  elements.clickVolume.addEventListener('input', () => {
+    ui.view.clickVolume = Number(elements.clickVolume.value);
   });
 
-  elements.clickVolume.addEventListener('input', () => {
-    state.clickVolume = Number(elements.clickVolume.value);
-  });
+  document.addEventListener('keydown', handleShortcut);
 
   setupMenu();
-  // Attach Save, Load and Export handlers once.
   setupProjectFiles({
-    state,
-
     isBusy: () => isPlaying,
-
-    beforeSave: () => {
-      state.bpm = getValidBpm();
+    getProject: () => {
+      commitTempo();
+      return { doc: history.present, view: ui.view };
     },
-
-    onLoaded: () => {
-      syncControlsFromState();
-      elements.playbackStatus.textContent = 'Ready';
-      renderApp();
-    }
+    onLoaded: handleProjectLoaded
   });
 
-  // Draw the initial interface.
   renderApp();
-
-  console.log('Tab Builder loaded');
 }
 
-function syncControlsFromState(): void {
-  elements.instrumentSelect.value = state.instrumentId;
-  elements.fretCountSelect.value = String(state.fretCount);
-  elements.durationSelect.value = String(state.selectedDurationSlots);
-  elements.tempoInput.value = String(state.bpm);
-  elements.scaleOverlayToggle.checked = state.scaleOverlay.enabled;
-  elements.scaleTonicSelect.value = String(state.scaleOverlay.tonicPitchClass);
-  elements.scaleSelect.value = state.scaleOverlay.scaleId;
-  elements.metronomeToggle.checked = state.metronomeEnabled;
-  elements.clickVolume.value = String(state.clickVolume);
-}
+function populateControls(): void {
+  for (const instrument of INSTRUMENTS) {
+    elements.instrumentSelect.append(new Option(instrument.name, instrument.id));
+  }
 
-function populateScaleControls(): void {
+  for (const duration of DURATION_CHOICES) {
+    elements.durationSelect.append(new Option(durationName(duration), durationCode(duration)));
+  }
+
   for (const tonic of TONICS) {
-    const option = document.createElement('option');
-    option.value = String(tonic.pitchClass);
-    option.textContent = tonic.label;
-    elements.scaleTonicSelect.append(option);
+    elements.scaleTonicSelect.append(new Option(tonic.label, String(tonic.pitchClass)));
   }
 
   const groups = new Map<string, HTMLOptGroupElement>();
-
   for (const scale of SCALES) {
     let group = groups.get(scale.group);
-
     if (!group) {
       group = document.createElement('optgroup');
       group.label = scale.group;
-
       groups.set(scale.group, group);
       elements.scaleSelect.append(group);
     }
-
-    const option = document.createElement('option');
-    option.value = scale.id;
-    option.textContent = scale.name;
-
-    group.append(option);
+    group.append(new Option(scale.name, scale.id));
   }
 }
 
+/** Copy document and view state into the form controls. */
+function syncControlsFromState(): void {
+  const { song } = history.present;
+  elements.instrumentSelect.value = mainTrack(song).instrumentId;
+  elements.fretCountSelect.value = String(ui.view.fretCount);
+  elements.durationSelect.value = durationCode(ui.view.duration);
+  elements.tempoInput.value = String(song.tempo.bpm);
+  elements.tempoLabel.textContent = song.tempo.unit === 4 && !song.tempo.dotted
+    ? 'BPM'
+    : `BPM (1/${song.tempo.unit}${song.tempo.dotted ? ' dotted' : ''})`;
+  elements.scaleOverlayToggle.checked = ui.view.overlayEnabled;
+  elements.scaleTonicSelect.value = String(song.key.tonic);
+  elements.scaleSelect.value = song.key.scaleId;
+  elements.metronomeToggle.checked = ui.view.metronomeEnabled;
+  elements.clickVolume.value = String(ui.view.clickVolume);
+}
+
 function renderApp(): void {
-  renderFretboard(state, elements.fretboard, handleFretboardNoteClick);
-  renderTab(state, elements.tabEditor);
+  renderFretboardOnly();
+  renderTab(ui, elements.tabEditor);
   renderSelectedNote();
   renderCursorPosition();
   updateControls();
 }
 
 function renderFretboardOnly(): void {
-  renderFretboard(state, elements.fretboard, handleFretboardNoteClick);
+  renderFretboard(ui, elements.fretboard, handleFretboardNoteClick);
+}
+
+/** Run an edit through the history; show its error instead of throwing. Returns false on failure. */
+function edit(change: (doc: EditorDoc) => void): boolean {
+  try {
+    history.apply(change);
+    return true;
+  } catch (error) {
+    elements.playbackStatus.textContent = errorMessage(error);
+    return false;
+  }
+}
+
+/** After undo/redo/load, the controls must reflect the restored document. */
+function afterDocumentReplaced(): void {
+  ui.selectedNote = null;
+  syncControlsFromState();
+  renderApp();
+}
+
+function insert(notes: Note[]): void {
+  if (isPlaying) return;
+  if (edit(doc => insertEvent(doc, notes, ui.view.duration))) {
+    elements.playbackStatus.textContent = 'Ready';
+    renderApp();
+  }
 }
 
 function handleFretboardNoteClick(note: FretboardNote): void {
-  if (isPlaying) {
-    return;
-  }
+  if (isPlaying) return;
 
   // Start the preview directly from the user's click.
   playPreviewNote(note.midi).catch((error: unknown) => {
     console.error('Could not play note preview:', error);
   });
 
-  state.selectedNote = note;
-
-  let event;
-  try { event = addNoteEvent(state, note); }
-  catch (error) { elements.playbackStatus.textContent = errorMessage(error); return; }
-
-  console.log('Inserted note event:', event);
-
-  renderApp();
+  ui.selectedNote = note;
+  insert([{ string: note.string, fret: note.fret }]);
 }
 
 function handleInstrumentChange(): void {
-  if (isPlaying) {
-    return;
+  if (isPlaying) return;
+  let cleared = false;
+  const instrument = requireInstrument(elements.instrumentSelect.value);
+  if (edit(doc => { cleared = setInstrument(doc, instrument); })) {
+    ui.selectedNote = null;
+    elements.playbackStatus.textContent = cleared
+      ? 'Notes cleared: the new instrument has a different number of strings. Undo to restore them.'
+      : 'Ready';
   }
-
-  setInstrument(state, elements.instrumentSelect.value);
   renderApp();
 }
 
-function handleFretCountChange(): void {
-  if (isPlaying) {
-    return;
-  }
-
-  setFretCount(state, elements.fretCountSelect.value);
-  renderApp();
-}
-
-function handleScaleOverlayToggle(): void {
-  setScaleOverlayEnabled(state, elements.scaleOverlayToggle.checked);
-  updateScaleControlAvailability();
+function handleKeyChange(): void {
+  edit(doc => setSongKey(doc, {
+    tonic: Number(elements.scaleTonicSelect.value),
+    scaleId: elements.scaleSelect.value
+  }));
   renderFretboardOnly();
-}
-
-function handleScaleTonicChange(): void {
-  setScaleTonic(state, elements.scaleTonicSelect.value);
-  renderFretboardOnly();
-}
-
-function handleScaleChange(): void {
-  setScaleId(state, elements.scaleSelect.value);
-  renderFretboardOnly();
-}
-
-function handleDurationChange(): void {
-  setSelectedDuration(state, elements.durationSelect.value);
-  renderCursorPosition();
-}
-
-function handleInsertRest(): void {
-  if (isPlaying) {
-    return;
-  }
-
-  let event;
-  try { event = addRestEvent(state); }
-  catch (error) { elements.playbackStatus.textContent = errorMessage(error); return; }
-
-  console.log('Inserted rest event:', event);
-
-  renderApp();
+  updateControls();
 }
 
 function handleUndo(): void {
-  if (isPlaying) {
-    return;
-  }
+  if (isPlaying || !history.undo()) return;
+  elements.playbackStatus.textContent = 'Ready';
+  afterDocumentReplaced();
+}
 
-  const removedEvent = undoLastEvent(state);
-
-  if (removedEvent) {
-    console.log('Undid event:', removedEvent);
-  }
-
-  renderApp();
+function handleRedo(): void {
+  if (isPlaying || !history.redo()) return;
+  elements.playbackStatus.textContent = 'Ready';
+  afterDocumentReplaced();
 }
 
 function handleClear(): void {
-  if (isPlaying || state.events.length === 0) {
-    return;
-  }
-
-  clearEvents(state);
+  if (isPlaying || !hasNotes()) return;
+  if (edit(clearNotes)) elements.playbackStatus.textContent = 'Notes cleared. Undo to restore them.';
   renderApp();
 }
 
-async function handlePlay(): Promise<void> {
-  if (isPlaying) {
-    return;
+function handleShortcut(event: KeyboardEvent): void {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  const target = event.target as HTMLElement | null;
+  // Leave undo inside text fields to the browser.
+  if (target && (target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' &&
+    ['text', 'number', 'search'].includes((target as HTMLInputElement).type)))) return;
+  const key = event.key.toLowerCase();
+  if (key === 'z' && !event.shiftKey) {
+    event.preventDefault();
+    handleUndo();
+  } else if (key === 'y' || (key === 'z' && event.shiftKey)) {
+    event.preventDefault();
+    handleRedo();
   }
+}
 
-  const bpm = getValidBpm();
+function handleProjectLoaded(project: LoadedProject): void {
+  history.reset(project.doc);
+  ui.view = project.view;
+  elements.playbackStatus.textContent = 'Ready';
+  afterDocumentReplaced();
+}
+
+function hasNotes(): boolean {
+  return history.present.song.tracks.some(track => track.bars.some(bar => bar.events.length > 0));
+}
+
+async function handlePlay(): Promise<void> {
+  if (isPlaying) return;
+  commitTempo();
 
   isPlaying = true;
-  elements.playbackStatus.textContent = `Playing at ${bpm} BPM…`;
+  elements.playbackStatus.textContent = `Playing at ${history.present.song.tempo.bpm} BPM…`;
   updateControls();
 
   try {
-    const started = await playSequence(state, bpm, {
+    const started = await playSong(history.present.song, {
+      metronome: ui.view.metronomeEnabled,
+      clickVolume: ui.view.clickVolume,
       onPositionChange: handlePlaybackPositionChange,
       onComplete: handlePlaybackComplete
     });
-
     if (!started && isPlaying) handlePlaybackComplete();
   } catch (error) {
-    stopPlayback(); handlePlaybackComplete();
+    stopPlayback();
+    handlePlaybackComplete();
     elements.playbackStatus.textContent = `Playback failed: ${errorMessage(error)}`;
     console.error(error);
   }
 }
 
-function handlePlaybackPositionChange(slot: number | null): void {
-  if (slot === null) {
-    clearPlaybackPosition(state);
+function handlePlaybackPositionChange(tick: number | null): void {
+  ui.playbackTick = tick;
+  if (tick === null) {
+    ui.activeNotes = [];
   } else {
-    setPlaybackPosition(state, slot);
+    const placed = eventAtTick(placeEvents(history.present.song), tick);
+    ui.activeNotes = placed ? placed.event.notes : [];
   }
-
   renderPlaybackVisuals();
 }
 
 function handleStop(): void {
-  if (!isPlaying) {
-    return;
-  }
-
+  if (!isPlaying) return;
   stopPlayback();
   handlePlaybackComplete();
 }
 
 function handlePlaybackComplete(): void {
-  clearPlaybackPosition(state);
-
+  ui.playbackTick = null;
+  ui.activeNotes = [];
   isPlaying = false;
   elements.playbackStatus.textContent = 'Ready';
-
   renderPlaybackVisuals();
   updateControls();
 }
 
-function handleTempoChange(): void {
-  const bpm = getValidBpm();
+/** Clamp the BPM field and store it in the song if it changed. */
+function commitTempo(): void {
+  const input = Number(elements.tempoInput.value);
+  const bpm = Number.isFinite(input) ? Math.min(300, Math.max(20, input)) : 120;
   elements.tempoInput.value = String(bpm);
-  state.bpm = bpm;
-}
-
-function getValidBpm(): number {
-  const inputBpm = Number(elements.tempoInput.value);
-
-  if (!Number.isFinite(inputBpm)) {
-    elements.tempoInput.value = '120';
-    return 120;
+  if (bpm !== history.present.song.tempo.bpm && !elements.tempoInput.disabled) {
+    edit(doc => setTempoBpm(doc, bpm));
+    updateControls();
   }
-
-  const clampedBpm = Math.min(300, Math.max(20, inputBpm));
-
-  elements.tempoInput.value = String(clampedBpm);
-
-  state.bpm = clampedBpm;
-  return clampedBpm;
 }
 
 function renderSelectedNote(): void {
-  if (!state.selectedNote) {
+  if (!ui.selectedNote) {
     elements.selectedNote.textContent = 'No note selected';
     return;
   }
-
-  const { string, fret, noteName, midi } = state.selectedNote;
-
-  elements.selectedNote.textContent =
-    `Selected: ${noteName} — string ${string}, fret ${fret}, MIDI ${midi}`;
+  const { string, fret, noteName, midi } = ui.selectedNote;
+  elements.selectedNote.textContent = `Selected: ${noteName} — string ${string}, fret ${fret}, MIDI ${midi}`;
 }
 
 function renderCursorPosition(): void {
-  const position = getCursorPosition(state);
+  const position = cursorPosition(history.present);
   if (position.ended) {
-    elements.cursorDisplay.textContent = 'Cursor: end of imported chart';
+    elements.cursorDisplay.textContent = 'Cursor: end of the chart';
     return;
   }
-  const offBeatText = position.isOffBeat ? ' &' : '';
+  const { offsetInPulse, pulseTicks } = position;
+  const label = subdivisionLabel(offsetInPulse, pulseTicks);
+  // Positions without a name (e.g. after a 32nd) show as a fraction of the beat.
+  const divisor = gcd(offsetInPulse, pulseTicks);
+  const offset = offsetInPulse === 0 ? ''
+    : label ? ` ${label}` : ` + ${offsetInPulse / divisor}/${pulseTicks / divisor}`;
+  elements.cursorDisplay.textContent = `Cursor: Bar ${position.bar + 1}, beat ${position.pulse + 1}${offset}`;
+}
 
-  elements.cursorDisplay.textContent =
-    `Cursor: Bar ${position.bar}, beat ${position.beat}${offBeatText}`;
+function gcd(a: number, b: number): number {
+  while (b) [a, b] = [b, a % b];
+  return a;
 }
 
 function renderPlaybackVisuals(): void {
-  updateTabPlayback(state, elements.tabEditor);
-  const keys = new Set(state.activeNotes.map(n => `${n.string}:${n.fret}`));
+  updateTabPlayback(ui, elements.tabEditor);
+  const keys = new Set(ui.activeNotes.map(n => `${n.string}:${n.fret}`));
   elements.fretboard.querySelectorAll<HTMLElement>('.fret').forEach(button => {
     button.classList.toggle('is-playing', keys.has(`${button.dataset.string}:${button.dataset.fret}`));
   });
 }
 
 function updateControls(): void {
-  const hasEvents = state.events.length > 0;
+  const { song } = history.present;
+  const notes = hasNotes();
 
-  elements.undoButton.disabled = !hasEvents || isPlaying;
-  elements.clearButton.disabled = !hasEvents || isPlaying;
+  elements.undoButton.disabled = !history.canUndo || isPlaying;
+  elements.redoButton.disabled = !history.canRedo || isPlaying;
+  elements.clearButton.disabled = !notes || isPlaying;
   elements.restButton.disabled = isPlaying;
 
   elements.playButton.disabled = isPlaying;
@@ -411,14 +426,16 @@ function updateControls(): void {
   elements.instrumentSelect.disabled = isPlaying;
   elements.fretCountSelect.disabled = isPlaying;
   elements.durationSelect.disabled = isPlaying;
-  elements.tempoInput.disabled = isPlaying || Boolean(state.rhythmChart);
+  // A tempo map is edited bar by bar (later); the single BPM field only drives songs without one.
+  elements.tempoInput.disabled = isPlaying || hasTempoChanges(song);
   elements.rhythmFile.disabled = isPlaying;
   elements.rhythmReset.disabled = isPlaying;
   elements.metronomeToggle.disabled = isPlaying;
   elements.clickVolume.disabled = isPlaying;
-  elements.rhythmStatus.textContent = state.rhythmChart
-    ? `${state.rhythmChart.name}: ${state.rhythmChart.bars.length} bars · imported tempo map`
-    : 'Free 4/4 chart · global BPM';
+  const timeline = song.timeline;
+  elements.rhythmStatus.textContent = timeline.source
+    ? `${timeline.source.name}: ${timeline.bars.length} bars · imported${hasTempoChanges(song) ? ' tempo map' : ''}`
+    : 'Free chart · grows as you write';
 
   elements.scaleOverlayToggle.disabled = isPlaying;
 
@@ -427,32 +444,22 @@ function updateControls(): void {
 }
 
 function updateScaleControlAvailability(): void {
-  const scaleControlsDisabled =
-    !state.scaleOverlay.enabled || isPlaying;
-
-  elements.scaleTonicSelect.disabled = scaleControlsDisabled;
-  elements.scaleSelect.disabled = scaleControlsDisabled;
+  const disabled = !ui.view.overlayEnabled || isPlaying;
+  elements.scaleTonicSelect.disabled = disabled;
+  elements.scaleSelect.disabled = disabled;
 }
 
 function changeBarsPerRow(change: number): void {
-  if (isPlaying) {
-    return;
-  }
-
-  setBarsPerRow(state, state.barsPerRow + change);
-
-  renderTab(state, elements.tabEditor);
+  if (isPlaying) return;
+  ui.view.barsPerRow = Math.min(8, Math.max(1, ui.view.barsPerRow + change));
+  renderTab(ui, elements.tabEditor);
   updateBarDensityControls();
 }
 
 function updateBarDensityControls(): void {
-  elements.barsPerRowDisplay.textContent = String(state.barsPerRow);
-
-  elements.fewerBarsButton.disabled =
-    isPlaying || state.barsPerRow <= 1;
-
-  elements.moreBarsButton.disabled =
-    isPlaying || state.barsPerRow >= 8;
+  elements.barsPerRowDisplay.textContent = String(ui.view.barsPerRow);
+  elements.fewerBarsButton.disabled = isPlaying || ui.view.barsPerRow <= 1;
+  elements.moreBarsButton.disabled = isPlaying || ui.view.barsPerRow >= 8;
 }
 
 async function handleRhythmImport(): Promise<void> {
@@ -462,41 +469,27 @@ async function handleRhythmImport(): Promise<void> {
     if (file.size > 1000000) throw new Error('Rhythm file must be smaller than 1 MB.');
     const chart = importMetronomo(JSON.parse(await file.text()));
     if (isPlaying) throw new Error('Stop playback before importing.');
-    if ((state.events.length || state.rhythmChart) &&
-      !window.confirm('Replace the current rhythm chart and remove its notes? This cannot be undone.')) return;
-    applyRhythmChart(state, chart);
-    elements.playbackStatus.textContent = 'Rhythm imported. Press Play to hear the empty chart.';
-    renderApp();
+    if (edit(doc => replaceTimeline(doc, chart.timeline, chart.tempo))) {
+      ui.selectedNote = null;
+      syncControlsFromState();
+      elements.playbackStatus.textContent = 'Rhythm imported. Press Play to hear it; Undo restores the previous chart.';
+      renderApp();
+    }
   } catch (error) {
     elements.playbackStatus.textContent = `Import failed: ${errorMessage(error)}`;
-  } finally { elements.rhythmFile.value = ''; }
+  } finally {
+    elements.rhythmFile.value = '';
+  }
 }
 
 function handleRhythmReset(): void {
-  if (isPlaying) {
-    return;
+  if (isPlaying) return;
+  if (edit(resetToFreeTimeline)) {
+    ui.selectedNote = null;
+    syncControlsFromState();
+    elements.playbackStatus.textContent = 'Free chart. Undo restores the previous chart and notes.';
+    renderApp();
   }
-
-  if (
-    (state.events.length || state.rhythmChart) &&
-    !window.confirm(
-      'Return to free 4/4 and remove the current notes? ' +
-      'This cannot be undone.'
-    )
-  ) {
-    return;
-  }
-
-  clearEvents(state);
-  clearPlaybackPosition(state);
-
-  state.rhythmChart = null;
-  state.selectedNote = null;
-
-  elements.playbackStatus.textContent = 'Ready';
-
-  renderApp();
 }
-
 
 init();

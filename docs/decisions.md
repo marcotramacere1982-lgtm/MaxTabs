@@ -34,3 +34,29 @@ quintuplets are exact integers. Replaces eighth-note slots.
 ## 2026-10-18 — Custom SVG tab renderer (planned, Phase 3)
 The tab is the primary editing surface, so the rendering is custom. SVG scales to
 phone screens and prints cleanly to PDF. VexFlow stays an option for standard notation later.
+
+## 2026-10-19 — Phase 1 model design
+- **Song = timeline + tracks.** One shared timeline of bars (meter, accents, tempo
+  changes, key changes, chord symbols) and a list of tracks whose bars line up with
+  it index for index. Only track 1 is edited for now; the array keeps multi-track
+  (e.g. guitar + bass for MIDI export) open without another format change.
+- **Events fill bars in sequence.** Each track bar is a list of events (duration +
+  notes; no notes = rest) laid end to end from the bar start. Positions are derived,
+  not stored, which is how notation software models rhythm and keeps tuplets exact.
+  Events never cross a bar line; ties carry a note across instead.
+- **Ties** are a flag on a note meaning "continue the same string and fret from the
+  event just before". Playback merges tied notes into one sound.
+- **Pitch is derived, not stored.** Supersedes the 2026-10-13 decision: a note stores
+  string and fret; MIDI pitch comes from the track's tuning. A tuning change can then
+  never leave stale pitches behind.
+- **Tempo, key and chord changes are sticky**: each applies until the next one.
+  Tempo and key change at bar starts; chords can sit anywhere in a bar.
+- **Free vs imported charts** are the same structure with an `extendable` flag:
+  free timelines grow when you write past the end, imported ones are fixed.
+- **Undo is snapshot-based.** Every edit runs on a deep copy and is validated before
+  it is committed, so a failed edit changes nothing. Limit: 200 steps. Simple and
+  safe at tab-sized documents; revisit only if songs get very large.
+- **Known limit:** at 960 PPQ, septuplets of 16ths and 8ths are not whole ticks and
+  are rejected. Raising PPQ to 6720 would allow them if ever needed.
+- **Interim grid view:** until the SVG renderer (Phase 3), each tab row splits into
+  columns as fine as its shortest note, so rows with 32nds get very wide.

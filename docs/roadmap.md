@@ -12,12 +12,13 @@
 ## Phase 0 — Vite + TypeScript scaffold
 - [x] 1:1 port to strict TypeScript, Vite dev/build, Vitest tests
 
-## Phase 1 — Core model (pure TS, no UI)
-- [ ] Positions and durations in ticks (960 PPQ): dotted notes, tuplets, ties
-- [ ] Unified timeline: free and imported charts share one bar + tempo-map structure
-- [ ] Harmony track: optional key/chord per bar
-- [ ] Command-based undo/redo
-- [ ] Project format v2 with migration from v1
+## Phase 1 — Core model
+- [x] Positions and durations in ticks (960 PPQ): dotted notes, tuplets, ties (model)
+- [x] Unified timeline: free and imported charts share one bar + tempo-map structure
+- [x] Harmony track: song key, key changes and chord symbols per bar (model)
+- [x] Undo/redo (snapshot-based, atomic, validated)
+- [x] Project format v2 with migration from v1
+- [x] UI rewired: 16th/32nd and dotted durations, redo, undoable import/reset/instrument change
 
 ## Phase 2 — Instruments
 - [ ] Data-driven registry: 6/7-string guitar, 4/5-string bass, alternate tunings
@@ -27,7 +28,8 @@
 - [ ] SVG tab renderer
 - [ ] Free cursor navigation and in-place editing
 - [ ] Responsive, touch-friendly fretboard
-- [ ] Overlay follows the harmony of the bar under the cursor
+- [ ] Overlay follows the harmony of the bar under the cursor (model ready; needs bar key/chord editing UI)
+- [ ] Tuplet and tie entry (model ready)
 
 ## Phase 4 — Audio
 - [ ] Voice interface between scheduler and sound source

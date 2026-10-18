@@ -1,6 +1,7 @@
-import { timedBars, slotToSeconds, secondsToSlot, lastOf } from './timeline';
+import { buildSchedule, type ScheduledSound } from '../model/schedule';
+import { secondsToTick } from '../model/timeline';
+import type { Song } from '../model/song';
 import { scheduleClick } from './metronome';
-import type { Accent, AppState } from './types';
 
 declare global {
   interface Window {
@@ -9,13 +10,12 @@ declare global {
 }
 
 export interface PlaybackOptions {
-  onPositionChange?: (slot: number | null) => void;
+  metronome: boolean;
+  clickVolume: number;
+  /** Absolute tick of the playhead, or null when it leaves the song. */
+  onPositionChange?: (tick: number | null) => void;
   onComplete?: () => void;
 }
-
-type Job =
-  | { kind: 'note'; time: number; midi: number; duration: number }
-  | { kind: 'click'; time: number; accent: Accent };
 
 let context: AudioContext | undefined;
 let session = 0;
@@ -69,45 +69,25 @@ export function stopPlayback(): void {
   voices.clear();
 }
 
-export async function playSequence(state: AppState, bpm: number, options: PlaybackOptions = {}): Promise<boolean> {
+export async function playSong(song: Song, options: PlaybackOptions): Promise<boolean> {
   stopPlayback();
   const id = session;
   const ctx = await getContext();
   if (id !== session) return false;
-  state.bpm = bpm;
-  const bars = timedBars(state);
-  const end = lastOf(bars).endSeconds;
+  const { layout, sounds, endSeconds } = buildSchedule(song, { metronome: options.metronome });
   const start = ctx.currentTime + 0.08;
-  const jobs: Job[] = [];
-  for (const event of state.events) {
-    if (event.type !== 'note') continue;
-    const time = slotToSeconds(bars, event.startSlot);
-    const duration = slotToSeconds(bars, event.startSlot + event.durationSlots) - time;
-    for (const pitch of event.notes) jobs.push({ time, kind: 'note', midi: pitch.midi, duration });
-  }
-  if (state.metronomeEnabled) {
-    for (const bar of bars) {
-      for (let pulse = 0; pulse < bar.numerator; pulse++) {
-        jobs.push({
-          kind: 'click', time: bar.startSeconds + pulse * bar.pulseSlots * bar.secondsPerSlot,
-          accent: bar.accents[pulse] ?? 0
-        });
-      }
-    }
-  }
-  jobs.sort((a, b) => a.time - b.time);
   let next = 0;
   function schedule(): void {
     if (id !== session) return;
     const horizon = ctx.currentTime + 0.12;
-    let job: Job | undefined;
-    while ((job = jobs[next]) && start + job.time < horizon) {
+    let sound: ScheduledSound | undefined;
+    while ((sound = sounds[next]) && start + sound.time < horizon) {
       next++;
-      const when = Math.max(ctx.currentTime, start + job.time);
-      if (job.kind === 'note') note(ctx, job.midi, when, job.duration);
-      else scheduleClick(ctx, when, job.accent, state.clickVolume, register);
+      const when = Math.max(ctx.currentTime, start + sound.time);
+      if (sound.kind === 'note') note(ctx, sound.midi, when, sound.duration);
+      else scheduleClick(ctx, when, sound.accent, options.clickVolume, register);
     }
-    if (ctx.currentTime >= start + end + 0.02) {
+    if (ctx.currentTime >= start + endSeconds + 0.02) {
       stopPlayback(); options.onPositionChange?.(null); options.onComplete?.();
     }
   }
@@ -115,8 +95,8 @@ export async function playSequence(state: AppState, bpm: number, options: Playba
   function visuals(): void {
     if (id !== session) return;
     const elapsed = ctx.currentTime - start;
-    const slot = elapsed < 0 ? null : secondsToSlot(bars, elapsed);
-    if (slot !== previous) { previous = slot; options.onPositionChange?.(slot); }
+    const tick = elapsed < 0 ? null : secondsToTick(layout, elapsed);
+    if (tick !== previous) { previous = tick; options.onPositionChange?.(tick); }
     frame = requestAnimationFrame(visuals);
   }
   timer = setInterval(schedule, 25);

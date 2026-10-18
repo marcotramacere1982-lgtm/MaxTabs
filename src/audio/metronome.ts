@@ -1,4 +1,4 @@
-import type { Accent } from './types';
+import type { Accent } from '../model/song';
 
 export type RegisterVoice = (oscillator: OscillatorNode, gain: GainNode) => void;
 

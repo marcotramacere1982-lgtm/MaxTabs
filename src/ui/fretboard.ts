@@ -1,38 +1,35 @@
-import { requireInstrument } from './state';
-import { getScale, type Scale } from './scales';
-import type { AppState, FretboardNote } from './types';
+import { getScale, type Scale } from '../model/scales';
+import { mainTrack, type Key } from '../model/song';
+import { midiToNoteName, pitchClassOf, stringsOf } from '../model/pitch';
+import { harmonyAt } from '../model/harmony';
+import { cursorPosition } from '../model/editing';
+import type { FretboardNote, UiState } from './uiState';
 
-const NOTE_NAMES = [
-  'C',
-  'C#',
-  'D',
-  'D#',
-  'E',
-  'F',
-  'F#',
-  'G',
-  'G#',
-  'A',
-  'A#',
-  'B'
-];
+const MARKER_FRETS = new Set([3, 5, 7, 9, 12, 15, 17, 19, 21, 24]);
 
-const MARKER_FRETS = new Set([3, 5, 7, 9, 12, 15, 17, 19, 21]);
+/** The key the overlay shows: the harmony in effect at the cursor. */
+export function overlayKey(ui: UiState): Key {
+  const position = cursorPosition(ui.doc);
+  const bars = ui.doc.song.timeline.bars.length;
+  return position.ended
+    ? harmonyAt(ui.doc.song, bars - 1, Number.MAX_SAFE_INTEGER).key
+    : harmonyAt(ui.doc.song, position.bar, position.tickInBar).key;
+}
 
 export function renderFretboard(
-  state: AppState,
+  ui: UiState,
   container: HTMLElement,
   onNoteClicked: (note: FretboardNote) => void
 ): void {
-  const instrument = requireInstrument(state.instrumentId);
-  const activeScale = state.scaleOverlay.enabled
-    ? getScale(state.scaleOverlay.scaleId)
-    : undefined;
+  const strings = stringsOf(mainTrack(ui.doc.song).tuning);
+  const fretCount = ui.view.fretCount;
+  const key = ui.view.overlayEnabled ? overlayKey(ui) : null;
+  const activeScale = key ? getScale(key.scaleId) : undefined;
 
   container.replaceChildren();
-  container.style.setProperty('--fret-count', String(state.fretCount + 1));
+  container.style.setProperty('--fret-count', String(fretCount + 1));
 
-  for (const stringData of [...instrument.strings].reverse()) {
+  for (const stringData of [...strings].reverse()) {
     const row = document.createElement('div');
     row.className = 'fretboard-row';
 
@@ -41,7 +38,7 @@ export function renderFretboard(
     stringLabel.textContent = `${stringData.label} (${stringData.noteName})`;
     row.append(stringLabel);
 
-    for (let fret = 0; fret <= state.fretCount; fret += 1) {
+    for (let fret = 0; fret <= fretCount; fret += 1) {
       const midi = stringData.midi + fret;
       const noteName = midiToNoteName(midi);
 
@@ -62,7 +59,7 @@ export function renderFretboard(
         `String ${stringData.number}, fret ${fret}, ${noteName}`
       );
 
-      const scaleTone = getScaleToneInfo(state, activeScale, midi);
+      const scaleTone = key ? getScaleToneInfo(key.tonic, activeScale, midi) : null;
 
       if (scaleTone) {
         button.classList.add('is-scale-tone');
@@ -76,15 +73,15 @@ export function renderFretboard(
       }
 
       const isSelected =
-        state.selectedNote &&
-        state.selectedNote.string === stringData.number &&
-        state.selectedNote.fret === fret;
+        ui.selectedNote &&
+        ui.selectedNote.string === stringData.number &&
+        ui.selectedNote.fret === fret;
 
       if (isSelected) {
         button.classList.add('is-selected');
       }
 
-      const isPlayingThisFret = state.activeNotes.some((note) => {
+      const isPlayingThisFret = ui.activeNotes.some((note) => {
         return (
           note.string === stringData.number &&
           note.fret === fret
@@ -96,15 +93,7 @@ export function renderFretboard(
       }
 
       button.addEventListener('click', () => {
-        const note: FretboardNote = {
-          string: stringData.number,
-          stringLabel: stringData.label,
-          fret,
-          midi,
-          noteName
-        };
-
-        onNoteClicked(note);
+        onNoteClicked({ string: stringData.number, fret, midi, noteName });
       });
 
       row.append(button);
@@ -113,11 +102,11 @@ export function renderFretboard(
     container.append(row);
   }
 
-  renderFretMarkers(state, container);
+  renderFretMarkers(fretCount, container);
 }
 
 function getScaleToneInfo(
-  state: AppState,
+  tonic: number,
   scale: Scale | undefined,
   midi: number
 ): { degree: string; isRoot: boolean } | null {
@@ -125,10 +114,8 @@ function getScaleToneInfo(
     return null;
   }
 
-  const pitchClass = getPitchClass(midi);
-  const interval = (pitchClass - state.scaleOverlay.tonicPitchClass + 12) % 12;
-  const scaleIndex = scale.intervals.indexOf(interval);
-  const degree = scale.degrees[scaleIndex];
+  const interval = (pitchClassOf(midi) - tonic + 12) % 12;
+  const degree = scale.degrees[scale.intervals.indexOf(interval)];
 
   if (degree === undefined) {
     return null;
@@ -140,34 +127,23 @@ function getScaleToneInfo(
   };
 }
 
-function getPitchClass(midi: number): number {
-  return ((midi % 12) + 12) % 12;
-}
-
-function renderFretMarkers(state: AppState, container: HTMLElement): void {
+function renderFretMarkers(fretCount: number, container: HTMLElement): void {
   const markerRow = document.createElement('div');
   markerRow.className = 'fretboard-marker-row';
 
   const spacer = document.createElement('span');
   markerRow.append(spacer);
 
-  for (let fret = 0; fret <= state.fretCount; fret += 1) {
+  for (let fret = 0; fret <= fretCount; fret += 1) {
     const marker = document.createElement('span');
     marker.className = 'fret-marker';
 
     if (MARKER_FRETS.has(fret)) {
-      marker.textContent = fret === 12 ? '●●' : '●';
+      marker.textContent = fret === 12 || fret === 24 ? '●●' : '●';
     }
 
     markerRow.append(marker);
   }
 
   container.append(markerRow);
-}
-
-export function midiToNoteName(midi: number): string {
-  const note = NOTE_NAMES[getPitchClass(midi)];
-  const octave = Math.floor(midi / 12) - 1;
-
-  return `${note}${octave}`;
 }
