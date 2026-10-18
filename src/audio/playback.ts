@@ -2,6 +2,7 @@ import { buildSchedule, type ScheduledSound } from '../model/schedule';
 import { secondsToTick } from '../model/timeline';
 import type { Song } from '../model/song';
 import { scheduleClick } from './metronome';
+import { playPluck } from './pluck';
 
 declare global {
   interface Window {
@@ -21,7 +22,7 @@ let context: AudioContext | undefined;
 let session = 0;
 let timer: ReturnType<typeof setInterval> | null = null;
 let frame: number | null = null;
-const voices = new Set<OscillatorNode>();
+const voices = new Set<AudioScheduledSourceNode>();
 
 async function getContext(): Promise<AudioContext> {
   if (!context) {
@@ -33,29 +34,22 @@ async function getContext(): Promise<AudioContext> {
   return context;
 }
 
-function register(oscillator: OscillatorNode, gain: GainNode): void {
-  voices.add(oscillator);
-  oscillator.addEventListener('ended', () => {
-    voices.delete(oscillator); oscillator.disconnect(); gain.disconnect();
+function register(source: AudioScheduledSourceNode, gain: GainNode): void {
+  voices.add(source);
+  source.addEventListener('ended', () => {
+    voices.delete(source); source.disconnect(); gain.disconnect();
   }, { once: true });
 }
 
 function note(ctx: AudioContext, midi: number, when: number, duration: number): void {
-  const oscillator = ctx.createOscillator();
-  const gain = ctx.createGain();
-  oscillator.type = 'triangle';
-  oscillator.frequency.value = 440 * 2 ** ((midi - 69) / 12);
-  gain.gain.setValueAtTime(0.0001, when);
-  gain.gain.exponentialRampToValueAtTime(0.14, when + Math.min(0.01, duration / 4));
-  gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
-  oscillator.connect(gain); gain.connect(ctx.destination);
-  register(oscillator, gain);
-  oscillator.start(when); oscillator.stop(when + duration + 0.01);
+  const { source, gain } = playPluck(ctx, midi, when, duration);
+  register(source, gain);
 }
 
 export async function playPreviewNote(midi: number): Promise<void> {
   const ctx = await getContext();
-  note(ctx, midi, ctx.currentTime + 0.01, 0.35);
+  // Previews ring freely; they are not tracked, so Stop does not cut a note you just clicked.
+  playPluck(ctx, midi, ctx.currentTime + 0.01, 1.6);
 }
 
 export function stopPlayback(): void {
@@ -63,8 +57,8 @@ export function stopPlayback(): void {
   if (timer !== null) clearInterval(timer);
   if (frame !== null) cancelAnimationFrame(frame);
   timer = frame = null;
-  for (const oscillator of voices) {
-    try { oscillator.stop(); } catch { /* Already ended. */ }
+  for (const source of voices) {
+    try { source.stop(); } catch { /* Already ended. */ }
   }
   voices.clear();
 }

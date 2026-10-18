@@ -2,9 +2,15 @@
 
 Browser behaviour that unit tests cannot cover. Run with `npm run dev`.
 
+## Look and theme
+- [ ] Menu → View → Theme: Auto follows the system; Light and Dark override it and survive a reload.
+- [ ] No flash of the wrong theme on load.
+
 ## Fretboard
-- [ ] Guitar renders six strings, bass four; the top guitar string is labelled "e".
-- [ ] Clicking a fret previews the note and inserts it at the cursor.
+- [ ] Guitar renders six strings, bass four; the top guitar string is labelled "e"; low strings look wound.
+- [ ] Clicking a string between two frets plucks it (string vibrates, sound plays) and inserts the note.
+- [ ] Clicking left of the nut inserts an open string.
+- [ ] During playback the sounding positions light up and strings vibrate as notes start.
 - [ ] Scale overlay: degrees and roots move when tonic or scale change.
 
 ## Tab entry

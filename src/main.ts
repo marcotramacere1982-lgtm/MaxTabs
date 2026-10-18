@@ -27,30 +27,31 @@ import {
   setTempoBpm
 } from './model/editing';
 import { subdivisionLabel } from './model/timeline';
-import { eventAtTick, placeEvents } from './model/schedule';
+import { eventAtTick, placeEvents, type PlacedEvent } from './model/schedule';
 import { importMetronomo } from './io/metronomoComposto';
 import { defaultViewPrefs, type LoadedProject } from './io/projectFormat';
-import { renderFretboard } from './ui/fretboard';
+import { FretboardView } from './ui/fretboard';
 import { renderTab, updateTabPlayback } from './ui/tabEditor';
 import { setupProjectFiles } from './ui/projectFiles';
 import { setupMenu } from './ui/menu';
+import { setupTheme } from './ui/theme';
 import { askRemapMode } from './ui/remapDialog';
 import { byId } from './ui/dom';
 import type { FretboardNote, UiState } from './ui/uiState';
 import { playPreviewNote, playSong, stopPlayback } from './audio/playback';
 import { errorMessage } from './errors';
 
-/** Durations offered in the editor, longest first. */
-const DURATION_CHOICES: Duration[] = [
-  { value: 1, dots: 0 },
-  { value: 2, dots: 1 },
-  { value: 2, dots: 0 },
-  { value: 4, dots: 1 },
-  { value: 4, dots: 0 },
-  { value: 8, dots: 1 },
-  { value: 8, dots: 0 },
-  { value: 16, dots: 0 },
-  { value: 32, dots: 0 }
+/** Durations offered in the editor, longest first, with their chip labels. */
+const DURATION_CHOICES: { duration: Duration; label: string }[] = [
+  { duration: { value: 1, dots: 0 }, label: '1' },
+  { duration: { value: 2, dots: 1 }, label: '½.' },
+  { duration: { value: 2, dots: 0 }, label: '½' },
+  { duration: { value: 4, dots: 1 }, label: '¼.' },
+  { duration: { value: 4, dots: 0 }, label: '¼' },
+  { duration: { value: 8, dots: 1 }, label: '⅛.' },
+  { duration: { value: 8, dots: 0 }, label: '⅛' },
+  { duration: { value: 16, dots: 0 }, label: '1/16' },
+  { duration: { value: 32, dots: 0 }, label: '1/32' }
 ];
 
 const history = new History<EditorDoc>(
@@ -84,7 +85,7 @@ const elements = {
   scaleTonicSelect: byId<HTMLSelectElement>('scale-tonic-select'),
   scaleSelect: byId<HTMLSelectElement>('scale-select'),
 
-  durationSelect: byId<HTMLSelectElement>('duration-select'),
+  durationChips: byId('duration-chips'),
   restButton: byId<HTMLButtonElement>('rest-button'),
   cursorDisplay: byId('cursor-display'),
 
@@ -93,7 +94,6 @@ const elements = {
   clearButton: byId<HTMLButtonElement>('clear-button'),
 
   playButton: byId<HTMLButtonElement>('play-button'),
-  stopButton: byId<HTMLButtonElement>('stop-button'),
   tempoInput: byId<HTMLInputElement>('tempo-input'),
   tempoLabel: byId<HTMLLabelElement>('tempo-label'),
   playbackStatus: byId('playback-status'),
@@ -104,6 +104,10 @@ const elements = {
 };
 
 let isPlaying = false;
+/** The event whose notes were last plucked on the fretboard during playback. */
+let lastPlayedEvent: PlacedEvent | undefined;
+
+const fretboard = new FretboardView(elements.fretboard, handleFretboardNoteClick);
 
 function init(): void {
   populateControls();
@@ -138,16 +142,21 @@ function init(): void {
   elements.scaleTonicSelect.addEventListener('change', handleKeyChange);
   elements.scaleSelect.addEventListener('change', handleKeyChange);
 
-  elements.durationSelect.addEventListener('change', () => {
-    ui.view.duration = parseDurationCode(elements.durationSelect.value);
+  elements.durationChips.addEventListener('click', event => {
+    const chip = (event.target as Element).closest<HTMLButtonElement>('.chip');
+    if (!chip || chip.disabled) return;
+    ui.view.duration = parseDurationCode(chip.value);
+    markDurationChips();
   });
   elements.restButton.addEventListener('click', () => insert([]));
   elements.undoButton.addEventListener('click', handleUndo);
   elements.redoButton.addEventListener('click', handleRedo);
   elements.clearButton.addEventListener('click', handleClear);
 
-  elements.playButton.addEventListener('click', handlePlay);
-  elements.stopButton.addEventListener('click', handleStop);
+  elements.playButton.addEventListener('click', () => {
+    if (isPlaying) handleStop();
+    else void handlePlay();
+  });
   elements.tempoInput.addEventListener('change', commitTempo);
 
   elements.metronomeToggle.addEventListener('change', () => {
@@ -159,6 +168,7 @@ function init(): void {
 
   document.addEventListener('keydown', handleShortcut);
 
+  setupTheme();
   setupMenu();
   setupProjectFiles({
     isBusy: () => isPlaying,
@@ -177,8 +187,16 @@ function populateControls(): void {
     elements.instrumentSelect.append(new Option(instrument.name, instrument.id));
   }
 
-  for (const duration of DURATION_CHOICES) {
-    elements.durationSelect.append(new Option(durationName(duration), durationCode(duration)));
+  for (const { duration, label } of DURATION_CHOICES) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.value = durationCode(duration);
+    chip.textContent = label;
+    chip.title = durationName(duration);
+    chip.setAttribute('role', 'radio');
+    chip.setAttribute('aria-label', durationName(duration));
+    elements.durationChips.append(chip);
   }
 
   for (const tonic of TONICS) {
@@ -205,7 +223,7 @@ function syncControlsFromState(): void {
   elements.instrumentSelect.value = track.instrumentId;
   populateTunings(track.instrumentId, track.tuning);
   elements.fretCountSelect.value = String(ui.view.fretCount);
-  elements.durationSelect.value = durationCode(ui.view.duration);
+  markDurationChips();
   elements.tempoInput.value = String(song.tempo.bpm);
   elements.tempoLabel.textContent = song.tempo.unit === 4 && !song.tempo.dotted
     ? 'BPM'
@@ -217,6 +235,13 @@ function syncControlsFromState(): void {
   elements.clickVolume.value = String(ui.view.clickVolume);
 }
 
+function markDurationChips(): void {
+  const current = durationCode(ui.view.duration);
+  for (const chip of elements.durationChips.querySelectorAll<HTMLButtonElement>('.chip')) {
+    chip.setAttribute('aria-checked', String(chip.value === current));
+  }
+}
+
 function renderApp(): void {
   renderFretboardOnly();
   renderTab(ui, elements.tabEditor);
@@ -226,7 +251,7 @@ function renderApp(): void {
 }
 
 function renderFretboardOnly(): void {
-  renderFretboard(ui, elements.fretboard, handleFretboardNoteClick);
+  fretboard.update(ui);
 }
 
 /** Run an edit through the history; show its error instead of throwing. Returns false on failure. */
@@ -413,12 +438,13 @@ async function handlePlay(): Promise<void> {
 
 function handlePlaybackPositionChange(tick: number | null): void {
   ui.playbackTick = tick;
-  if (tick === null) {
-    ui.activeNotes = [];
-  } else {
-    const placed = eventAtTick(placeEvents(history.present.song), tick);
-    ui.activeNotes = placed ? placed.event.notes : [];
+  const placed = tick === null ? undefined : eventAtTick(placeEvents(history.present.song), tick);
+  ui.activeNotes = placed ? placed.event.notes : [];
+  // Pluck each event once, as it starts; tied notes keep ringing without a new pluck.
+  if (placed && placed.startTick !== lastPlayedEvent?.startTick) {
+    for (const note of placed.event.notes) if (!note.tie) fretboard.pluck(note);
   }
+  lastPlayedEvent = placed;
   renderPlaybackVisuals();
 }
 
@@ -431,6 +457,7 @@ function handleStop(): void {
 function handlePlaybackComplete(): void {
   ui.playbackTick = null;
   ui.activeNotes = [];
+  lastPlayedEvent = undefined;
   isPlaying = false;
   elements.playbackStatus.textContent = 'Ready';
   renderPlaybackVisuals();
@@ -450,11 +477,13 @@ function commitTempo(): void {
 
 function renderSelectedNote(): void {
   if (!ui.selectedNote) {
-    elements.selectedNote.textContent = 'No note selected';
+    elements.selectedNote.textContent = 'Click a string to write a note.';
     return;
   }
-  const { string, fret, noteName, midi } = ui.selectedNote;
-  elements.selectedNote.textContent = `Selected: ${noteName} — string ${string}, fret ${fret}, MIDI ${midi}`;
+  const { string, fret, noteName } = ui.selectedNote;
+  const name = document.createElement('b');
+  name.textContent = noteName;
+  elements.selectedNote.replaceChildren(name, ` — string ${string}, fret ${fret}`);
 }
 
 function renderCursorPosition(): void {
@@ -479,10 +508,7 @@ function gcd(a: number, b: number): number {
 
 function renderPlaybackVisuals(): void {
   updateTabPlayback(ui, elements.tabEditor);
-  const keys = new Set(ui.activeNotes.map(n => `${n.string}:${n.fret}`));
-  elements.fretboard.querySelectorAll<HTMLElement>('.fret').forEach(button => {
-    button.classList.toggle('is-playing', keys.has(`${button.dataset.string}:${button.dataset.fret}`));
-  });
+  fretboard.update(ui);
 }
 
 function updateControls(): void {
@@ -494,13 +520,13 @@ function updateControls(): void {
   elements.clearButton.disabled = !notes || isPlaying;
   elements.restButton.disabled = isPlaying;
 
-  elements.playButton.disabled = isPlaying;
-  elements.stopButton.disabled = !isPlaying;
+  elements.playButton.classList.toggle('is-playing', isPlaying);
+  elements.playButton.setAttribute('aria-label', isPlaying ? 'Stop' : 'Play');
 
   elements.instrumentSelect.disabled = isPlaying;
   elements.tuningSelect.disabled = isPlaying;
   elements.fretCountSelect.disabled = isPlaying;
-  elements.durationSelect.disabled = isPlaying;
+  for (const chip of elements.durationChips.querySelectorAll<HTMLButtonElement>('.chip')) chip.disabled = isPlaying;
   // A tempo map is edited bar by bar (later); the single BPM field only drives songs without one.
   elements.tempoInput.disabled = isPlaying || hasTempoChanges(song);
   elements.rhythmFile.disabled = isPlaying;

@@ -1,11 +1,39 @@
-import { getScale, type Scale } from '../model/scales';
+// Realistic SVG fretboard: rosewood, nickel frets, pearl inlays, wound strings you click directly.
+// The board itself is rebuilt only when tuning, fret count or the scale overlay change; selection,
+// playback highlights and pluck animations live on a separate layer so they never restart it.
+
+import { getScale } from '../model/scales';
 import { mainTrack, type Key } from '../model/song';
-import { midiToNoteName, pitchClassOf, stringsOf } from '../model/pitch';
+import { midiToNoteName, pitchClassOf, stringsOf, type StringInfo } from '../model/pitch';
 import { harmonyAt } from '../model/harmony';
 import { cursorPosition } from '../model/editing';
-import type { FretboardNote, UiState } from './uiState';
+import type { FretPosition, FretboardNote, UiState } from './uiState';
 
-const MARKER_FRETS = new Set([3, 5, 7, 9, 12, 15, 17, 19, 21, 24]);
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const WIDTH = 1200;
+const LABEL_X = 20;
+const NUT_X = 74;
+const OPEN_X = NUT_X - 26;
+const END_PAD = 10;
+/** 1 = true guitar fret spacing; lower values even out high frets so they stay clickable. */
+const REALISM = 0.7;
+const INLAYS = [3, 5, 7, 9, 12, 15, 17, 19, 21, 24];
+const DOUBLE_INLAYS = new Set([12, 24]);
+/** Strings at or below this pitch are drawn wound. */
+const WOUND_BELOW_MIDI = 51;
+
+type Attrs = Record<string, string | number>;
+
+function svg<K extends keyof SVGElementTagNameMap>(name: K, attrs: Attrs = {}, parent?: Element): SVGElementTagNameMap[K] {
+  const node = document.createElementNS(SVG_NS, name);
+  for (const [key, value] of Object.entries(attrs)) {
+    // Theme tokens only resolve through CSS, not presentation attributes.
+    if (typeof value === 'string' && value.includes('var(')) node.style.setProperty(key, value);
+    else node.setAttribute(key, String(value));
+  }
+  parent?.append(node);
+  return node;
+}
 
 /** The key the overlay shows: the harmony in effect at the cursor. */
 export function overlayKey(ui: UiState): Key {
@@ -16,134 +44,206 @@ export function overlayKey(ui: UiState): Key {
     : harmonyAt(ui.doc.song, position.bar, position.tickInBar).key;
 }
 
-export function renderFretboard(
-  ui: UiState,
-  container: HTMLElement,
-  onNoteClicked: (note: FretboardNote) => void
-): void {
-  const strings = stringsOf(mainTrack(ui.doc.song).tuning);
-  const fretCount = ui.view.fretCount;
-  const key = ui.view.overlayEnabled ? overlayKey(ui) : null;
-  const activeScale = key ? getScale(key.scaleId) : undefined;
-
-  container.replaceChildren();
-  container.style.setProperty('--fret-count', String(fretCount + 1));
-
-  for (const stringData of [...strings].reverse()) {
-    const row = document.createElement('div');
-    row.className = 'fretboard-row';
-
-    const stringLabel = document.createElement('span');
-    stringLabel.className = 'string-label';
-    stringLabel.textContent = `${stringData.label} (${stringData.noteName})`;
-    row.append(stringLabel);
-
-    for (let fret = 0; fret <= fretCount; fret += 1) {
-      const midi = stringData.midi + fret;
-      const noteName = midiToNoteName(midi);
-
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'fret';
-
-      button.dataset.string = String(stringData.number);
-      button.dataset.fret = String(fret);
-      button.dataset.midi = String(midi);
-      button.dataset.noteName = noteName;
-
-      button.title =
-        `String ${stringData.number}, fret ${fret}: ${noteName}`;
-
-      button.setAttribute(
-        'aria-label',
-        `String ${stringData.number}, fret ${fret}, ${noteName}`
-      );
-
-      const scaleTone = key ? getScaleToneInfo(key.tonic, activeScale, midi) : null;
-
-      if (scaleTone) {
-        button.classList.add('is-scale-tone');
-        button.textContent = scaleTone.degree;
-
-        if (scaleTone.isRoot) {
-          button.classList.add('is-scale-root');
-        }
-      } else if (fret === 0) {
-        button.textContent = '0';
-      }
-
-      const isSelected =
-        ui.selectedNote &&
-        ui.selectedNote.string === stringData.number &&
-        ui.selectedNote.fret === fret;
-
-      if (isSelected) {
-        button.classList.add('is-selected');
-      }
-
-      const isPlayingThisFret = ui.activeNotes.some((note) => {
-        return (
-          note.string === stringData.number &&
-          note.fret === fret
-        );
-      });
-
-      if (isPlayingThisFret) {
-        button.classList.add('is-playing');
-      }
-
-      button.addEventListener('click', () => {
-        onNoteClicked({ string: stringData.number, fret, midi, noteName });
-      });
-
-      row.append(button);
-    }
-
-    container.append(row);
-  }
-
-  renderFretMarkers(fretCount, container);
+interface StringRow extends StringInfo {
+  y: number;
+  group: SVGGElement;
 }
 
-function getScaleToneInfo(
-  tonic: number,
-  scale: Scale | undefined,
-  midi: number
-): { degree: string; isRoot: boolean } | null {
-  if (!scale) {
-    return null;
-  }
-
-  const interval = (pitchClassOf(midi) - tonic + 12) % 12;
-  const degree = scale.degrees[scale.intervals.indexOf(interval)];
-
-  if (degree === undefined) {
-    return null;
-  }
-
-  return {
-    degree,
-    isRoot: interval === 0
-  };
+interface Layout {
+  key: string;
+  fretCount: number;
+  rows: StringRow[];
+  gap: number;
+  dynamic: SVGGElement;
+  flash: SVGCircleElement;
 }
 
-function renderFretMarkers(fretCount: number, container: HTMLElement): void {
-  const markerRow = document.createElement('div');
-  markerRow.className = 'fretboard-marker-row';
+export class FretboardView {
+  private layout: Layout | null = null;
+  private readonly root: SVGSVGElement;
 
-  const spacer = document.createElement('span');
-  markerRow.append(spacer);
-
-  for (let fret = 0; fret <= fretCount; fret += 1) {
-    const marker = document.createElement('span');
-    marker.className = 'fret-marker';
-
-    if (MARKER_FRETS.has(fret)) {
-      marker.textContent = fret === 12 || fret === 24 ? '●●' : '●';
-    }
-
-    markerRow.append(marker);
+  constructor(container: HTMLElement, private readonly onNote: (note: FretboardNote) => void) {
+    this.root = svg('svg', { role: 'presentation' });
+    container.replaceChildren(this.root);
+    this.root.addEventListener('pointerdown', event => this.handlePointer(event));
   }
 
-  container.append(markerRow);
+  /** Redraw as needed for the current state. */
+  update(ui: UiState): void {
+    const tuning = mainTrack(ui.doc.song).tuning;
+    const key = ui.view.overlayEnabled ? overlayKey(ui) : null;
+    const structureKey = JSON.stringify([tuning, ui.view.fretCount, key]);
+    if (this.layout?.key !== structureKey) this.build(tuning, ui.view.fretCount, key, structureKey);
+    this.updateDynamic(ui.selectedNote, ui.activeNotes);
+  }
+
+  /** Vibrate a string and flash the fretted position (on click and during playback). */
+  pluck(position: FretPosition): void {
+    const layout = this.layout;
+    const row = layout?.rows.find(r => r.number === position.string);
+    if (!layout || !row) return;
+    restartAnimation(row.group, 'is-plucked');
+    layout.flash.setAttribute('cx', String(this.noteX(position.fret)));
+    layout.flash.setAttribute('cy', String(row.y));
+    restartAnimation(layout.flash, 'is-on');
+  }
+
+  /** Highlight positions without plucking (e.g. playback of held notes). */
+  private updateDynamic(selected: FretPosition | null, active: FretPosition[]): void {
+    const layout = this.layout;
+    if (!layout) return;
+    layout.dynamic.replaceChildren();
+    for (const note of active) {
+      const row = layout.rows.find(r => r.number === note.string);
+      if (row) svg('circle', { class: 'fb-active', cx: this.noteX(note.fret), cy: row.y, r: 9 }, layout.dynamic);
+    }
+    if (selected) {
+      const row = layout.rows.find(r => r.number === selected.string);
+      if (row) svg('circle', { class: 'fb-selected', cx: this.noteX(selected.fret), cy: row.y, r: 13 }, layout.dynamic);
+    }
+  }
+
+  private fretX(fret: number): number {
+    const count = this.layout?.fretCount ?? 15;
+    const span = WIDTH - NUT_X - END_PAD;
+    const real = (1 - 2 ** (-fret / 12)) / (1 - 2 ** (-count / 12));
+    return NUT_X + span * (REALISM * real + (1 - REALISM) * fret / count);
+  }
+
+  /** Centre of the space where a fret is played (left of the nut for open strings). */
+  private noteX(fret: number): number {
+    return fret === 0 ? OPEN_X : (this.fretX(fret - 1) + this.fretX(fret)) / 2;
+  }
+
+  private handlePointer(event: PointerEvent): void {
+    const hit = (event.target as Element).closest<SVGRectElement>('.fb-hit');
+    const row = this.layout?.rows.find(r => r.number === Number(hit?.dataset.string));
+    if (!hit || !row || event.button > 0) return;
+    event.preventDefault();
+    const fret = Number(hit.dataset.fret);
+    const midi = row.midi + fret;
+    this.pluck({ string: row.number, fret });
+    this.onNote({ string: row.number, fret, midi, noteName: midiToNoteName(midi) });
+  }
+
+  private build(tuning: number[], fretCount: number, key: Key | null, structureKey: string): void {
+    const strings = stringsOf(tuning);
+    const count = strings.length;
+    const gap = count >= 7 ? 26 : count === 6 ? 30 : count === 5 ? 32 : 34;
+    const pad = 22;
+    const top = 12;
+    const bottom = top + pad * 2 + gap * (count - 1);
+    const height = bottom + 22;
+    const boardWidth = WIDTH - NUT_X - END_PAD + 4;
+    const root = this.root;
+    root.replaceChildren();
+    root.setAttribute('viewBox', `0 0 ${WIDTH} ${height}`);
+    // fretX reads the fret count from the layout, so set it before drawing.
+    this.layout = { key: structureKey, fretCount, rows: [], gap, dynamic: svg('g'), flash: svg('circle') };
+
+    const defs = svg('defs', {}, root);
+    const wood = svg('linearGradient', { id: 'fb-wood', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+    svg('stop', { offset: 0, 'stop-color': 'var(--board-a)' }, wood);
+    svg('stop', { offset: 1, 'stop-color': 'var(--board-b)' }, wood);
+    const fret = svg('linearGradient', { id: 'fb-fret', x1: 0, y1: 0, x2: 1, y2: 0 }, defs);
+    svg('stop', { offset: 0, 'stop-color': 'var(--fret)' }, fret);
+    svg('stop', { offset: 0.45, 'stop-color': 'var(--fret-hi)' }, fret);
+    svg('stop', { offset: 1, 'stop-color': 'var(--fret)' }, fret);
+    const pearl = svg('radialGradient', { id: 'fb-pearl', cx: 0.35, cy: 0.35, r: 0.7 }, defs);
+    svg('stop', { offset: 0, 'stop-color': '#FFFFFF' }, pearl);
+    svg('stop', { offset: 0.6, 'stop-color': 'var(--inlay)' }, pearl);
+    svg('stop', { offset: 1, 'stop-color': '#C9BFAE' }, pearl);
+    // Wood grain: stretched fractal noise, tinted brown and clipped to the board.
+    const grain = svg('filter', { id: 'fb-grain', x: 0, y: 0, width: 1, height: 1 }, defs);
+    svg('feTurbulence', { type: 'fractalNoise', baseFrequency: '0.004 0.22', numOctaves: 3, seed: 7, result: 'noise' }, grain);
+    svg('feColorMatrix', { in: 'noise', type: 'matrix', values: '0 0 0 0 0.12  0 0 0 0 0.06  0 0 0 0 0.02  0 0 0 0.55 0', result: 'tint' }, grain);
+    svg('feComposite', { in: 'tint', in2: 'SourceGraphic', operator: 'in' }, grain);
+    const winding = svg('pattern', { id: 'fb-wound', width: 2.2, height: 6, patternUnits: 'userSpaceOnUse' }, defs);
+    svg('rect', { width: 2.2, height: 6, fill: 'var(--string-wound)' }, winding);
+    svg('rect', { width: 0.7, height: 6, fill: 'rgba(0,0,0,.35)' }, winding);
+
+    svg('rect', { x: NUT_X, y: top, width: boardWidth, height: bottom - top, rx: 3, fill: 'url(#fb-wood)' }, root);
+    svg('rect', { x: NUT_X, y: top, width: boardWidth, height: bottom - top, rx: 3, fill: '#000', filter: 'url(#fb-grain)' }, root);
+    svg('rect', { x: NUT_X - 9, y: top - 2, width: 10, height: bottom - top + 4, rx: 2, fill: 'var(--nut)' }, root);
+
+    const mid = (top + bottom) / 2;
+    for (const n of INLAYS) {
+      if (n > fretCount) break;
+      const x = this.noteX(n);
+      const ys = DOUBLE_INLAYS.has(n) ? [mid - gap, mid + gap] : [mid];
+      for (const y of ys) svg('circle', { cx: x, cy: y, r: 7, fill: 'url(#fb-pearl)' }, root);
+    }
+
+    for (let n = 1; n <= fretCount; n++) {
+      const x = this.fretX(n);
+      svg('rect', { x: x - 2.2, y: top, width: 4.4, height: bottom - top, rx: 1.5, fill: 'url(#fb-fret)' }, root);
+      if (INLAYS.includes(n)) svg('text', { class: 'fb-fretnum', x: this.noteX(n), y: height - 4 }, root).textContent = String(n);
+    }
+
+    // Strings: lowest at the bottom, as you look down at the instrument.
+    const rows: StringRow[] = [];
+    strings.forEach((string, i) => {
+      const y = bottom - pad - i * gap;
+      const thickness = Math.max(0.9, 3.6 - i * (2.7 / Math.max(1, count - 1)));
+      const wound = string.midi <= WOUND_BELOW_MIDI;
+      svg('text', { class: 'fb-label', x: LABEL_X, y }, root).textContent = string.label;
+      const group = svg('g', { class: 'fb-string' }, root);
+      const length = WIDTH - NUT_X - END_PAD + 6;
+      svg('rect', { x: NUT_X - 4, y: y - thickness / 2 + 1.2, width: length, height: thickness, fill: 'rgba(0,0,0,.28)' }, group);
+      svg('rect', {
+        x: NUT_X - 4, y: y - thickness / 2, width: length, height: thickness, rx: thickness / 2,
+        fill: wound ? 'url(#fb-wound)' : 'var(--string-plain)'
+      }, group);
+      svg('rect', {
+        x: NUT_X - 4, y: y - thickness / 2, width: length, height: Math.max(0.4, thickness * 0.3),
+        fill: 'var(--string-hi)', opacity: 0.55
+      }, group);
+      rows.push({ ...string, y, group });
+    });
+
+    if (key) this.drawScale(rows, fretCount, key);
+
+    const layout = this.layout;
+    layout.rows = rows;
+    root.append(layout.dynamic);
+    layout.flash = svg('circle', { class: 'fb-flash', r: 11, cx: -50, cy: -50 }, root);
+
+    // Hit areas: one per string per fret space, plus the open string left of the nut.
+    const hits = svg('g', {}, root);
+    for (const row of rows) {
+      for (let f = 0; f <= fretCount; f++) {
+        const x0 = f === 0 ? LABEL_X + 12 : this.fretX(f - 1);
+        const x1 = f === 0 ? NUT_X - 6 : this.fretX(f);
+        const hit = svg('rect', {
+          class: 'fb-hit', x: x0, y: row.y - gap / 2, width: x1 - x0, height: gap,
+          'data-string': row.number, 'data-fret': f
+        }, hits);
+        svg('title', {}, hit).textContent = `String ${row.number}, fret ${f}: ${midiToNoteName(row.midi + f)}`;
+      }
+    }
+  }
+
+  private drawScale(rows: StringRow[], fretCount: number, key: Key): void {
+    const scale = getScale(key.scaleId);
+    if (!scale) return;
+    const group = svg('g', {}, this.root);
+    for (const row of rows) {
+      for (let f = 0; f <= fretCount; f++) {
+        const interval = (pitchClassOf(row.midi + f) - key.tonic + 12) % 12;
+        const degree = scale.degrees[scale.intervals.indexOf(interval)];
+        if (degree === undefined) continue;
+        const x = this.noteX(f);
+        const tone = svg('g', { class: interval === 0 ? 'fb-tone is-root' : 'fb-tone' }, group);
+        svg('circle', { cx: x, cy: row.y, r: 10.5 }, tone);
+        svg('text', { x, y: row.y + 0.5 }, tone).textContent = degree;
+      }
+    }
+  }
+}
+
+function restartAnimation(element: Element, className: string): void {
+  element.classList.remove(className);
+  // Reading layout forces the browser to notice the removal before the class returns.
+  void (element as SVGGraphicsElement).getBoundingClientRect();
+  element.classList.add(className);
 }

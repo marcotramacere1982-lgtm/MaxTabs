@@ -1,6 +1,6 @@
 import type { Accent } from '../model/song';
 
-export type RegisterVoice = (oscillator: OscillatorNode, gain: GainNode) => void;
+export type RegisterVoice = (source: AudioScheduledSourceNode, gain: GainNode) => void;
 
 const CLICK_FREQUENCIES = [800, 1100, 1500] as const;
 const CLICK_LEVELS = [0.3, 0.55, 0.8] as const;

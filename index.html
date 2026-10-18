@@ -3,185 +3,200 @@
 
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Guitar & Bass Tab Builder</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MaxTabs</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;700;800&family=Work+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+  <script>
+    // Apply the saved theme before first paint to avoid a flash of the wrong theme.
+    try {
+      const theme = localStorage.getItem('maxtabs.theme');
+      if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+    } catch { /* storage unavailable */ }
+  </script>
 </head>
 
 <body>
-  <header class="app-header">
-    <div class="app-title">
-      <h1>Guitar & Bass Tab Builder</h1>
-      <p class="app-subtitle">Click the fretboard to build a tab</p>
-    </div>
+  <div class="app">
+    <header class="panel topbar">
+      <div class="brand" aria-label="MaxTabs">Max<span>Tabs</span></div>
 
-    <div class="instrument-controls">
-      <label for="instrument-select">Instrument</label>
-      <select id="instrument-select" aria-label="Select instrument"></select>
+      <div class="field project-field">
+        <label for="project-title">Project</label>
+        <input id="project-title" type="text" maxlength="120" value="Untitled" placeholder="Project title">
+      </div>
 
-      <label for="tuning-select">Tuning</label>
-      <select id="tuning-select" aria-label="Select tuning"></select>
+      <div class="field">
+        <label for="instrument-select">Instrument</label>
+        <select id="instrument-select"></select>
+      </div>
 
-      <label for="fret-count">Frets</label>
-      <select id="fret-count" aria-label="Select number of frets">
-        <option value="12">12</option>
-        <option value="15" selected>15</option>
-        <option value="17">17</option>
-        <option value="22">22</option>
-        <option value="24">24</option>
-      </select>
+      <div class="field">
+        <label for="tuning-select">Tuning</label>
+        <select id="tuning-select"></select>
+      </div>
 
-      <label class="scale-toggle" for="scale-overlay-toggle">
+      <div class="topbar-spacer"></div>
+
+      <div class="transport" aria-label="Transport">
+        <div class="field tempo-field">
+          <label id="tempo-label" for="tempo-input">BPM</label>
+          <input id="tempo-input" type="number" min="20" max="300" value="120" inputmode="numeric">
+        </div>
+
+        <div class="field metronome-field">
+          <label class="switch" for="metronome-toggle">
+            <input id="metronome-toggle" type="checkbox" checked>
+            <span>Click</span>
+          </label>
+          <input id="click-volume" type="range" min="0" max="0.6" step="0.01" value="0.3"
+            aria-label="Metronome volume">
+        </div>
+
+        <button id="play-button" class="play" type="button" aria-label="Play">
+          <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z" /></svg>
+          <svg class="icon-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+        </button>
+      </div>
+
+      <details id="app-menu" class="app-menu">
+        <summary aria-label="Menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+        </summary>
+
+        <div class="panel app-menu-panel">
+          <section class="menu-section" aria-labelledby="menu-project">
+            <h2 id="menu-project">Project</h2>
+            <div class="menu-actions">
+              <button id="project-save" class="btn" type="button">Save in browser</button>
+              <button id="project-load" class="btn" type="button">Load browser save</button>
+              <button id="project-export" class="btn" type="button">Export file</button>
+              <label class="btn file-btn" for="project-open">Open file…</label>
+              <input id="project-open" class="visually-hidden" type="file" accept=".json,application/json">
+            </div>
+            <p id="project-status" class="hint" role="status" aria-live="polite"></p>
+          </section>
+
+          <section class="menu-section" aria-labelledby="menu-rhythm">
+            <h2 id="menu-rhythm">Rhythm chart</h2>
+            <div class="menu-actions">
+              <label class="btn file-btn" for="rhythm-file">Import metronome chart…</label>
+              <input id="rhythm-file" class="visually-hidden" type="file" accept=".json,application/json">
+              <button id="rhythm-reset" class="btn" type="button">New free 4/4</button>
+            </div>
+            <p id="rhythm-status" class="hint" aria-live="polite"></p>
+          </section>
+
+          <section class="menu-section" aria-labelledby="menu-view">
+            <h2 id="menu-view">View</h2>
+            <div class="menu-row">
+              <span>Theme</span>
+              <div class="seg theme-switch" id="theme-switch" role="group" aria-label="Theme">
+                <button type="button" data-theme-choice="system" title="Follow system">Auto</button>
+                <button type="button" data-theme-choice="light">Light</button>
+                <button type="button" data-theme-choice="dark">Dark</button>
+              </div>
+            </div>
+            <div class="menu-row">
+              <label for="fret-count">Frets</label>
+              <select id="fret-count">
+                <option value="12">12</option>
+                <option value="15" selected>15</option>
+                <option value="17">17</option>
+                <option value="22">22</option>
+                <option value="24">24</option>
+              </select>
+            </div>
+          </section>
+        </div>
+      </details>
+    </header>
+
+    <section class="panel toolbar" aria-label="Note entry">
+      <div class="field">
+        <span class="label" id="duration-label">Duration</span>
+        <div class="chips" id="duration-chips" role="radiogroup" aria-labelledby="duration-label"></div>
+      </div>
+
+      <button id="rest-button" class="btn" type="button">Rest</button>
+
+      <div class="toolbar-divider" aria-hidden="true"></div>
+
+      <label class="switch" for="scale-overlay-toggle">
         <input id="scale-overlay-toggle" type="checkbox">
-        Show scale
+        <span>Scale</span>
       </label>
 
-      <label for="scale-tonic-select">Tonic</label>
-      <select id="scale-tonic-select" disabled></select>
-
-      <label for="scale-select">Scale</label>
-      <select id="scale-select" disabled></select>
-    </div>
-    <details id="app-menu" class="app-menu">
-      <summary>☰ Menu</summary>
-
-      <div class="app-menu-panel">
-        <section class="menu-section">
-          <h2>Project</h2>
-          <div id="menu-project-controls"></div>
-        </section>
-
-        <section class="menu-section">
-          <h2>Instrument</h2>
-          <div id="menu-instrument-controls" class="menu-instrument-controls"></div>
-        </section>
-
-        <section class="menu-section">
-          <h2>Rhythm chart</h2>
-          <div id="menu-rhythm-controls"></div>
-        </section>
+      <div class="field">
+        <label for="scale-tonic-select">Tonic</label>
+        <select id="scale-tonic-select"></select>
       </div>
-    </details>
-  </header>
 
-  <main class="app-main">
-    <section class="panel fretboard-panel" aria-labelledby="fretboard-heading">
-      <div class="panel-header">
+      <div class="field">
+        <label for="scale-select">Scale</label>
+        <select id="scale-select"></select>
+      </div>
+
+      <div class="topbar-spacer"></div>
+
+      <div class="history">
+        <button id="undo-button" class="btn" type="button" title="Undo (Ctrl+Z)">Undo</button>
+        <button id="redo-button" class="btn" type="button" title="Redo (Ctrl+Y)">Redo</button>
+        <button id="clear-button" class="btn" type="button">Clear</button>
+      </div>
+    </section>
+
+    <section class="panel board-panel" aria-labelledby="fretboard-heading">
+      <div class="panel-head">
         <h2 id="fretboard-heading">Fretboard</h2>
-        <p class="panel-hint">Click a fret to insert a note at the cursor.</p>
+        <p class="hint">Click a string between two frets, or left of the nut for an open string.</p>
       </div>
-
-      <div id="fretboard" class="fretboard" role="group" aria-label="Clickable guitar fretboard"></div>
-
-      <div class="selection-status">
-        <span id="selected-note">No note selected</span>
+      <div class="board-well">
+        <div id="fretboard" class="fretboard" role="group" aria-label="Fretboard"></div>
       </div>
+      <p id="selected-note" class="hint selected-note">Click a string to write a note.</p>
     </section>
 
     <section class="panel tab-panel" aria-labelledby="tab-heading">
-      <div class="panel-header">
+      <div class="panel-head">
         <h2 id="tab-heading">Tab</h2>
-
-        <div class="tab-tools">
-          <button id="undo-button" type="button" disabled title="Undo (Ctrl+Z)">Undo</button>
-          <button id="redo-button" type="button" disabled title="Redo (Ctrl+Y or Ctrl+Shift+Z)">Redo</button>
-          <button id="clear-button" type="button" disabled>Clear</button>
+        <p id="cursor-display" class="hint cursor-display">Cursor: Bar 1, beat 1</p>
+        <div class="topbar-spacer"></div>
+        <div class="stepper" role="group" aria-label="Bars per row">
+          <span class="hint">Bars per row</span>
+          <button id="fewer-bars-button" class="btn btn-icon" type="button" aria-label="Fewer bars per row">−</button>
+          <output id="bars-per-row-display">4</output>
+          <button id="more-bars-button" class="btn btn-icon" type="button" aria-label="More bars per row">+</button>
         </div>
       </div>
-
-      <div class="rhythm-controls project-controls">
-        <label for="project-title">Project</label>
-
-        <input id="project-title" type="text" maxlength="120" value="Untitled" placeholder="Project title">
-
-        <button id="project-save" type="button">Save in browser</button>
-        <button id="project-load" type="button">Load browser save</button>
-        <button id="project-export" type="button">Export project JSON</button>
-        <label class="file-picker-label" for="project-open">Open project JSON</label>
-        <input id="project-open" type="file" accept=".json,application/json">
-
-        <span id="project-status" class="panel-hint" role="status" aria-live="polite"></span>
-      </div>
-
-      <div class="rhythm-controls">
-        <div class="duration-control">
-          <label for="duration-select">Duration</label>
-          <select id="duration-select"></select>
-        </div>
-
-        <button id="rest-button" type="button">Insert Rest</button>
-
-        <div class="bar-density-controls" role="group" aria-label="Bars per row">
-          <span>Bars per row</span>
-
-          <button id="fewer-bars-button" type="button" aria-label="Show fewer bars per row">−</button>
-          <output id="bars-per-row-display" aria-live="polite">4</output>
-          <button id="more-bars-button" type="button" aria-label="Show more bars per row">+</button>
-        </div>
-
-        <p id="cursor-display" class="cursor-display">
-          Cursor: Bar 1, beat 1
-        </p>
-      </div>
-
-      <div class="rhythm-controls">
-        <label for="rhythm-file">Import rhythm JSON</label>
-        <input id="rhythm-file" type="file" accept=".json,application/json">
-        <button id="rhythm-reset" type="button">New free 4/4</button>
-        <span id="rhythm-status" class="panel-hint" aria-live="polite"></span>
-      </div>
-
-      <div id="tab-editor" class="tab-editor" aria-label="Tab editor"></div>
+      <div id="tab-editor" class="tab-editor" aria-label="Tab"></div>
     </section>
 
-    <section class="panel transport-panel" aria-labelledby="transport-heading">
-      <div class="panel-header">
-        <h2 id="transport-heading">Transport</h2>
-      </div>
+    <p id="playback-status" class="status" role="status" aria-live="polite">Ready</p>
+  </div>
 
-      <div class="transport-controls">
-        <button id="play-button" type="button">Play</button>
-        <button id="stop-button" type="button">Stop</button>
-        <button id="tap-tempo-button" type="button" disabled title="Not implemented yet">Tap Tempo</button>
-        <label><input id="metronome-toggle" type="checkbox" checked> Metronome</label>
-        <label for="click-volume">Click volume</label>
-        <input id="click-volume" type="range" min="0" max="0.6" step="0.01" value="0.3">
-
-        <div class="tempo-control">
-          <label id="tempo-label" for="tempo-input">BPM</label>
-          <input id="tempo-input" type="number" min="20" max="300" value="120">
-        </div>
-      </div>
-
-      <div class="playback-status">
-        <span id="playback-status">Ready</span>
-      </div>
-    </section>
-  </main>
-
-  <dialog id="remap-dialog" class="remap-dialog" aria-labelledby="remap-title">
+  <dialog id="remap-dialog" class="panel remap-dialog" aria-labelledby="remap-title">
     <form method="dialog">
       <h2 id="remap-title">Change instrument or tuning</h2>
       <p id="remap-message"></p>
       <div class="remap-choices">
-        <button value="pitch" autofocus>
+        <button class="btn" value="pitch" autofocus>
           <strong>Keep pitches</strong>
           <span>Notes sound the same; some move to other frets or strings.</span>
         </button>
-        <button value="fret">
+        <button class="btn" value="fret">
           <strong>Keep fret numbers</strong>
           <span>The tab stays as written and sounds in the new tuning.</span>
         </button>
       </div>
       <div class="remap-footer">
-        <button value="cancel">Cancel</button>
+        <button class="btn" value="cancel">Cancel</button>
       </div>
     </form>
   </dialog>
-
-  <footer class="app-footer">
-    <p>MaxTabs — alpha</p>
-  </footer>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

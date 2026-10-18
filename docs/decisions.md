@@ -73,3 +73,10 @@ phone screens and prints cleanly to PDF. VexFlow stays an option for standard no
   are removed and reported; ties that no longer join matching notes are removed.
   The change is one undo step.
 - Phase 3 starts with a deep visual restyle (user request), not just new components.
+
+## 2026-10-19 — Visual direction: "Soft + Wood" (direction B)
+Chosen from three playable mockups. A soft, neumorphic shell (the metronomo-composto
+family look: warm grey, extruded controls, pressed-in wells; Outfit + Work Sans, JetBrains
+Mono for tab digits) around a realistic SVG rosewood fretboard with nickel frets, pearl
+inlays and wound strings that you click directly. Light, dark and system themes.
+Fretboard stays above the tab.
