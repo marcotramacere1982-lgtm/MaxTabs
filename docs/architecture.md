@@ -16,7 +16,7 @@ with later support for standard music notation.
 ## Architecture principles
 - Store notes with string, fret, MIDI pitch, start time, and duration
 - Treat tab, staff notation, and playback as views/outputs of one sequence model
-- Start with plain HTML/CSS/JavaScript; no build step initially
+- TypeScript (strict) with Vite; pure model modules have no DOM access and are unit-tested
 - Use Web Audio or Tone.js for playback
 - Use localStorage for early persistence
 - Add notation only after the core sequence model is stable
@@ -48,15 +48,17 @@ Each musical event should contain:
 }
 ```
 
-## Modules
-- `state.js`: application state and event model
-- `fretboard.js`: clickable fretboard UI
-- `tabEditor.js`: tab rendering and editing
-- `tempo.js`: tap tempo and timing calculations
-- `chords.js`: chord lookup and insertion
-- `techniques.js`: technique metadata and future playback behaviour
-- `playback.js`: Web Audio scheduling and synthesis
-- `storage.js`: localStorage save/load and future JSON export
+## Modules (src/)
+- `types.ts`: shared model types
+- `state.ts`: application state, instruments and event editing
+- `timeline.ts`: bars, slot/seconds conversion
+- `scales.ts`: scale and mode definitions
+- `fretboard.ts`: clickable fretboard and scale overlay
+- `tabEditor.ts`: tab rendering
+- `playback.ts` / `metronome.ts`: Web Audio scheduling and synthesis
+- `projectFiles.ts`: browser save/load, JSON export/import and validation
+- `importers/metronomoComposto.ts`: rhythm chart import
+- `menu.ts`, `dom.ts`, `errors.ts`, `main.ts`: UI wiring
 
 ## Development order
 1. Fretboard and note insertion

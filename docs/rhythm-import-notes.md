@@ -1,11 +1,6 @@
-# MaxTabs — rhythm import + metronome update
+# Rhythm import and metronome (alpha notes)
 
-## Installation
-Back up your existing project. Merge this folder into your project, replacing index.html,
-styles/main.css and the included scripts. The supplied index.html is based on index-2.html.
-Keep your existing docs and other assets. Launch index.html with Live Server.
-No npm install, build step, API key or external CDN is needed for the application.
-package.json is only for optional Node tests: npm test (or node tests/rhythm.test.js).
+Notes from the increment that added metronomo-composto import. Still accurate for the current slot-based model.
 
 ## Features
 - Import metronomo-composto version 1 JSON as an empty chart.
@@ -30,13 +25,12 @@ In free mode playback finishes the last musical bar, not decorative padding bars
 Imported chart playback includes all imported bars, including empty trailing bars.
 
 ## Verification
-Automated Node tests cover the sample, timing boundaries, denominator-unit conversion,
+Unit tests (`tests/unit/rhythm.test.ts`) cover the sample, timing boundaries, denominator-unit conversion,
 per-bar tempo, repeats, invalid imports, note boundaries and ordinary 4/4.
-JavaScript syntax and referenced HTML IDs were checked.
 Browser audio, mobile operation and visual behaviour require manual testing.
 
 ## Manual acceptance
-1. Load in Live Server: verify scales, bass and fret previews still work.
+1. Run `npm run dev`: verify scales, bass and fret previews still work.
 2. Import tests/fixtures/metronomo-test.json: see exactly 5/4, 7/8, 2/8.
 3. Play empty chart with metronome: 5 quarter pulses, 7 eighth pulses, 2 eighth pulses.
    Musical duration is 4.75 seconds plus the 80 ms startup lead-in.

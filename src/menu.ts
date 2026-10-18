@@ -1,14 +1,11 @@
-export function setupMenu() {
-  const menu = document.getElementById('app-menu');
+import { byId } from './dom';
 
-  const projectDestination =
-    document.getElementById('menu-project-controls');
+export function setupMenu(): void {
+  const menu = byId<HTMLDetailsElement>('app-menu');
 
-  const instrumentDestination =
-    document.getElementById('menu-instrument-controls');
-
-  const rhythmDestination =
-    document.getElementById('menu-rhythm-controls');
+  const projectDestination = byId('menu-project-controls');
+  const instrumentDestination = byId('menu-instrument-controls');
+  const rhythmDestination = byId('menu-rhythm-controls');
 
   // Move the complete project toolbar.
   const projectToolbar =
@@ -43,7 +40,7 @@ export function setupMenu() {
 
   // Close when clicking outside.
   document.addEventListener('click', (event) => {
-    if (menu.open && !menu.contains(event.target)) {
+    if (menu.open && !menu.contains(event.target as Node)) {
       menu.open = false;
     }
   });
@@ -52,7 +49,7 @@ export function setupMenu() {
   menu.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       menu.open = false;
-      menu.querySelector('summary').focus();
+      menu.querySelector('summary')?.focus();
       event.preventDefault();
     }
   });

@@ -1,29 +1,54 @@
-import { createState, getInstrument } from './state.js';
-import { getScale } from './scales.js';
+import { createState, getInstrument } from './state';
+import { getScale } from './scales';
+import { byId } from './dom';
+import { errorMessage } from './errors';
+import type { AppState, Bar, RhythmChart, ScaleOverlay, TabEvent } from './types';
 
 const STORAGE_KEY = 'maxtabs.project.v1';
 const FORMAT = 'maxtabs-project';
 const VERSION = 1;
+
+/** The persisted subset of AppState. */
+type ProjectData = Pick<AppState,
+  | 'instrumentId' | 'fretCount' | 'bpm'
+  | 'beatsPerBar' | 'slotsPerBeat' | 'selectedDurationSlots'
+  | 'cursorSlot' | 'nextEventId' | 'events' | 'rhythmChart'
+  | 'barsPerRow' | 'scaleOverlay' | 'metronomeEnabled' | 'clickVolume'>;
+
+interface ProjectDocument {
+  format: typeof FORMAT;
+  version: typeof VERSION;
+  title: string;
+  savedAt: string;
+  project: ProjectData;
+}
+
+export interface ProjectFilesOptions {
+  state: AppState;
+  isBusy: () => boolean;
+  beforeSave?: () => void;
+  onLoaded: () => void;
+}
 
 export function setupProjectFiles({
   state,
   isBusy,
   beforeSave,
   onLoaded
-}) {
+}: ProjectFilesOptions): void {
   console.log('Project file controls initialized');
-  const titleInput = document.getElementById('project-title');
-  const saveButton = document.getElementById('project-save');
-  const loadButton = document.getElementById('project-load');
-  const exportButton = document.getElementById('project-export');
-  const status = document.getElementById('project-status');
-  const openInput = document.getElementById('project-open');
+  const titleInput = byId<HTMLInputElement>('project-title');
+  const saveButton = byId<HTMLButtonElement>('project-save');
+  const loadButton = byId<HTMLButtonElement>('project-load');
+  const exportButton = byId<HTMLButtonElement>('project-export');
+  const status = byId('project-status');
+  const openInput = byId<HTMLInputElement>('project-open');
 
-  function report(message) {
+  function report(message: string): void {
     status.textContent = message;
   }
 
-  function captureProject() {
+  function captureProject(): ProjectDocument {
     beforeSave?.();
 
     return {
@@ -52,6 +77,17 @@ export function setupProjectFiles({
         clickVolume: state.clickVolume
       }
     };
+  }
+
+  function applyProject(restored: ProjectData, title: string): void {
+    Object.assign(state, createState(), restored, {
+      selectedNote: null,
+      playbackSlot: null,
+      activeNotes: []
+    });
+
+    titleInput.value = title;
+    onLoaded();
   }
 
   saveButton.addEventListener('click', () => {
@@ -102,35 +138,27 @@ export function setupProjectFiles({
       }
 
       // Validate fully before changing the current project.
-      const document = JSON.parse(raw);
-      const restored = validateProject(document);
+      const { title, project } = validateProject(JSON.parse(raw));
 
       if (
         !window.confirm(
-          `Load “${document.title}” and replace the current project? ` +
+          `Load “${title}” and replace the current project? ` +
           'Unsaved changes will be lost.'
         )
       ) {
         return;
       }
 
-      Object.assign(state, createState(), restored, {
-        selectedNote: null,
-        playbackSlot: null,
-        activeNotes: []
-      });
-
-      titleInput.value = document.title;
-      onLoaded();
-      report(`Loaded “${document.title}”.`);
+      applyProject(project, title);
+      report(`Loaded “${title}”.`);
     } catch (error) {
       console.error('Project load failed:', error);
-      report(`Load failed: ${error.message}`);
+      report(`Load failed: ${errorMessage(error)}`);
     }
   });
 
-  openInput.addEventListener('change', async (event) => {
-    const file = event.target.files[0];
+  openInput.addEventListener('change', async () => {
+    const file = openInput.files?.[0];
 
     if (!file) {
       return;
@@ -147,10 +175,9 @@ export function setupProjectFiles({
       }
 
       const text = await file.text();
-      const projectDocument = JSON.parse(text);
 
       // Validate before modifying the current project.
-      const restored = validateProject(projectDocument);
+      const { title, project } = validateProject(JSON.parse(text));
 
       // Playback may have started while the file was being read.
       if (isBusy()) {
@@ -159,7 +186,7 @@ export function setupProjectFiles({
       }
 
       const approved = window.confirm(
-        `Open “${projectDocument.title}” and replace the current project? ` +
+        `Open “${title}” and replace the current project? ` +
         'Unsaved changes will be lost.'
       );
 
@@ -167,23 +194,14 @@ export function setupProjectFiles({
         return;
       }
 
-      Object.assign(state, createState(), restored, {
-        selectedNote: null,
-        playbackSlot: null,
-        activeNotes: []
-      });
-
-      titleInput.value = projectDocument.title;
-
-      onLoaded();
-
-      report(`Opened “${projectDocument.title}”.`);
+      applyProject(project, title);
+      report(`Opened “${title}”.`);
     } catch (error) {
       console.error('Project open failed:', error);
-      report(`Open failed: ${error.message}`);
+      report(`Open failed: ${errorMessage(error)}`);
     } finally {
       // Allow selecting the same file again.
-      event.target.value = '';
+      openInput.value = '';
     }
   });
 
@@ -199,12 +217,13 @@ export function setupProjectFiles({
       report(`Export requested for “${project.title}”.`);
     } catch (error) {
       console.error('Project export failed:', error);
-      report(`Export failed: ${error.message}`);
+      report(`Export failed: ${errorMessage(error)}`);
     }
   });
 }
 
-function downloadProject(project) {
+
+function downloadProject(project: ProjectDocument): void {
   const text = JSON.stringify(project, null, 2);
   const blob = new Blob([text], {
     type: 'application/json'
@@ -229,18 +248,21 @@ function downloadProject(project) {
   window.setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-function validateProject(document) {
-  function require(condition, message) {
+// Loose views of untrusted JSON: every field is checked before use.
+type Loose<T> = { [K in keyof T]?: unknown };
+
+export function validateProject(input: unknown): { title: string; project: ProjectData } {
+  function require(condition: unknown, message: string): asserts condition {
     if (!condition) {
       throw new Error(message);
     }
   }
 
-  function integer(value, min, max) {
-    return Number.isInteger(value) && value >= min && value <= max;
+  function integer(value: unknown, min: number, max: number): value is number {
+    return Number.isInteger(value) && (value as number) >= min && (value as number) <= max;
   }
 
-  function number(value, min, max) {
+  function number(value: unknown, min: number, max: number): value is number {
     return (
       typeof value === 'number' &&
       Number.isFinite(value) &&
@@ -249,25 +271,32 @@ function validateProject(document) {
     );
   }
 
+  function oneOf<T>(values: readonly T[], value: unknown): value is T {
+    return values.includes(value as T);
+  }
+
+  const doc = input as Loose<ProjectDocument> | null;
+
   require(
-    document?.format === FORMAT && document.version === VERSION,
+    doc?.format === FORMAT && doc.version === VERSION,
     'Unsupported project format or version.'
   );
 
   require(
-    typeof document.title === 'string' &&
-    document.title.length <= 120,
+    typeof doc.title === 'string' &&
+    doc.title.length <= 120,
     'Invalid project title.'
   );
 
-  const p = document.project;
+  const title = doc.title;
+  const p = doc.project as Loose<ProjectData> | null | undefined;
 
   require(p && typeof p === 'object', 'Missing project data.');
 
-  const instrument = getInstrument(p.instrumentId);
+  const instrument = typeof p.instrumentId === 'string' ? getInstrument(p.instrumentId) : undefined;
 
-  require(Boolean(instrument), 'Unknown instrument.');
-  require([12, 15, 17, 22].includes(p.fretCount), 'Invalid fret count.');
+  require(instrument, 'Unknown instrument.');
+  require(oneOf([12, 15, 17, 22], p.fretCount), 'Invalid fret count.');
   require(number(p.bpm, 20, 300), 'Invalid BPM.');
 
   require(
@@ -276,7 +305,7 @@ function validateProject(document) {
   );
 
   require(
-    [1, 2, 4, 8].includes(p.selectedDurationSlots),
+    oneOf([1, 2, 4, 8], p.selectedDurationSlots),
     'Invalid selected duration.'
   );
 
@@ -295,18 +324,22 @@ function validateProject(document) {
     'Invalid metronome settings.'
   );
 
+  const overlay = p.scaleOverlay as Loose<ScaleOverlay> | null | undefined;
+
   require(
-    p.scaleOverlay &&
-    typeof p.scaleOverlay.enabled === 'boolean' &&
-    integer(p.scaleOverlay.tonicPitchClass, 0, 11) &&
-    Boolean(getScale(p.scaleOverlay.scaleId)),
+    overlay &&
+    typeof overlay.enabled === 'boolean' &&
+    integer(overlay.tonicPitchClass, 0, 11) &&
+    typeof overlay.scaleId === 'string' &&
+    Boolean(getScale(overlay.scaleId)),
     'Invalid scale overlay.'
   );
 
   let chartEnd = Infinity;
+  let chartBars: Loose<Bar>[] | null = null;
 
   if (p.rhythmChart !== null) {
-    const chart = p.rhythmChart;
+    const chart = p.rhythmChart as Loose<RhythmChart> | undefined;
 
     require(
       chart &&
@@ -317,12 +350,13 @@ function validateProject(document) {
       'Invalid rhythm chart.'
     );
 
+    chartBars = chart.bars as Loose<Bar>[];
     let expectedStart = 0;
 
-    for (const bar of chart.bars) {
+    for (const bar of chartBars) {
       require(
         integer(bar.numerator, 1, 32) &&
-        [1, 2, 4, 8].includes(bar.denominator),
+        oneOf([1, 2, 4, 8], bar.denominator),
         'Invalid bar meter.'
       );
 
@@ -340,7 +374,7 @@ function validateProject(document) {
       require(
         Array.isArray(bar.accents) &&
         bar.accents.length === bar.numerator &&
-        bar.accents.every(value => [0, 1, 2].includes(value)),
+        bar.accents.every(value => oneOf([0, 1, 2], value)),
         'Invalid bar accents.'
       );
 
@@ -352,9 +386,9 @@ function validateProject(document) {
 
   let expectedStart = 0;
   let largestId = 0;
-  const ids = new Set();
+  const ids = new Set<number>();
 
-  for (const event of p.events) {
+  for (const event of p.events as Loose<TabEvent>[]) {
     require(
       integer(event.id, 1, 10000000) &&
       !ids.has(event.id),
@@ -365,22 +399,23 @@ function validateProject(document) {
     largestId = Math.max(largestId, event.id);
 
     require(
-      ['note', 'rest'].includes(event.type) &&
+      oneOf(['note', 'rest'], event.type) &&
       event.startSlot === expectedStart &&
-      [1, 2, 4, 8].includes(event.durationSlots),
+      oneOf([1, 2, 4, 8], event.durationSlots),
       'Invalid event timing.'
     );
 
-    const end = event.startSlot + event.durationSlots;
+    const startSlot = expectedStart;
+    const end = startSlot + event.durationSlots;
 
-    const bar = p.rhythmChart
-      ? p.rhythmChart.bars.find(
+    const bar = chartBars
+      ? chartBars.find(
         b =>
-          event.startSlot >= b.startSlot &&
-          event.startSlot < b.startSlot + b.lengthSlots
-      )
+          startSlot >= (b.startSlot as number) &&
+          startSlot < (b.startSlot as number) + (b.lengthSlots as number)
+      ) as Pick<Bar, 'startSlot' | 'lengthSlots'> | undefined
       : {
-        startSlot: Math.floor(event.startSlot / 8) * 8,
+        startSlot: Math.floor(startSlot / 8) * 8,
         lengthSlots: 8
       };
 
@@ -400,7 +435,7 @@ function validateProject(document) {
       'Invalid event contents.'
     );
 
-    for (const note of event.notes) {
+    for (const note of event.notes as Loose<TabEvent['notes'][number]>[]) {
       const string = instrument.strings.find(
         item => item.number === note.string
       );
@@ -427,19 +462,22 @@ function validateProject(document) {
 
   // Return only fields understood by this version.
   return {
-    instrumentId: p.instrumentId,
-    fretCount: p.fretCount,
-    bpm: p.bpm,
-    beatsPerBar: p.beatsPerBar,
-    slotsPerBeat: p.slotsPerBeat,
-    selectedDurationSlots: p.selectedDurationSlots,
-    cursorSlot: p.cursorSlot,
-    nextEventId: p.nextEventId,
-    events: p.events,
-    rhythmChart: p.rhythmChart,
-    barsPerRow: p.barsPerRow,
-    scaleOverlay: p.scaleOverlay,
-    metronomeEnabled: p.metronomeEnabled,
-    clickVolume: p.clickVolume
+    title,
+    project: {
+      instrumentId: p.instrumentId as string,
+      fretCount: p.fretCount,
+      bpm: p.bpm,
+      beatsPerBar: p.beatsPerBar,
+      slotsPerBeat: p.slotsPerBeat,
+      selectedDurationSlots: p.selectedDurationSlots,
+      cursorSlot: p.cursorSlot,
+      nextEventId: p.nextEventId,
+      events: p.events as TabEvent[],
+      rhythmChart: p.rhythmChart as RhythmChart | null,
+      barsPerRow: p.barsPerRow,
+      scaleOverlay: p.scaleOverlay as ScaleOverlay,
+      metronomeEnabled: p.metronomeEnabled,
+      clickVolume: p.clickVolume
+    }
   };
 }

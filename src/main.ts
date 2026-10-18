@@ -1,4 +1,5 @@
-import { importMetronomo } from './importers/metronomoComposto.js';
+import './styles/main.css';
+import { importMetronomo } from './importers/metronomoComposto';
 import {
   addNoteEvent,
   applyRhythmChart,
@@ -16,102 +17,70 @@ import {
   setScaleTonic,
   setSelectedDuration,
   undoLastEvent
-} from './state.js';
+} from './state';
 
-
-import { TONICS, SCALES } from './scales.js';
-import { renderFretboard } from './fretboard.js';
-import { renderTab, updateTabPlayback } from './tabEditor.js';
-import { playPreviewNote, playSequence, stopPlayback } from './playback.js';
-import { setupProjectFiles } from './projectFiles.js';
-import { setupMenu } from './menu.js';
+import { TONICS, SCALES } from './scales';
+import { renderFretboard } from './fretboard';
+import { renderTab, updateTabPlayback } from './tabEditor';
+import { playPreviewNote, playSequence, stopPlayback } from './playback';
+import { setupProjectFiles } from './projectFiles';
+import { setupMenu } from './menu';
+import { byId } from './dom';
+import { errorMessage } from './errors';
+import type { FretboardNote } from './types';
 
 const state = createState();
 
 const elements = {
-  rhythmFile: document.getElementById('rhythm-file'),
-  rhythmReset: document.getElementById('rhythm-reset'),
-  rhythmStatus: document.getElementById('rhythm-status'),
-  metronomeToggle: document.getElementById('metronome-toggle'),
-  clickVolume: document.getElementById('click-volume'),
-  fretboard: document.getElementById('fretboard'),
-  tabEditor: document.getElementById('tab-editor'),
-  selectedNote: document.getElementById('selected-note'),
+  rhythmFile: byId<HTMLInputElement>('rhythm-file'),
+  rhythmReset: byId<HTMLButtonElement>('rhythm-reset'),
+  rhythmStatus: byId('rhythm-status'),
+  metronomeToggle: byId<HTMLInputElement>('metronome-toggle'),
+  clickVolume: byId<HTMLInputElement>('click-volume'),
+  fretboard: byId('fretboard'),
+  tabEditor: byId('tab-editor'),
+  selectedNote: byId('selected-note'),
 
-  instrumentSelect: document.getElementById('instrument-select'),
-  fretCountSelect: document.getElementById('fret-count'),
+  instrumentSelect: byId<HTMLSelectElement>('instrument-select'),
+  fretCountSelect: byId<HTMLSelectElement>('fret-count'),
 
-  scaleOverlayToggle: document.getElementById('scale-overlay-toggle'),
-  scaleTonicSelect: document.getElementById('scale-tonic-select'),
-  scaleSelect: document.getElementById('scale-select'),
+  scaleOverlayToggle: byId<HTMLInputElement>('scale-overlay-toggle'),
+  scaleTonicSelect: byId<HTMLSelectElement>('scale-tonic-select'),
+  scaleSelect: byId<HTMLSelectElement>('scale-select'),
 
-  durationSelect: document.getElementById('duration-select'),
-  restButton: document.getElementById('rest-button'),
-  cursorDisplay: document.getElementById('cursor-display'),
+  durationSelect: byId<HTMLSelectElement>('duration-select'),
+  restButton: byId<HTMLButtonElement>('rest-button'),
+  cursorDisplay: byId('cursor-display'),
 
-  undoButton: document.getElementById('undo-button'),
-  clearButton: document.getElementById('clear-button'),
+  undoButton: byId<HTMLButtonElement>('undo-button'),
+  clearButton: byId<HTMLButtonElement>('clear-button'),
 
-  playButton: document.getElementById('play-button'),
-  stopButton: document.getElementById('stop-button'),
-  tempoInput: document.getElementById('tempo-input'),
-  playbackStatus: document.getElementById('playback-status'),
+  playButton: byId<HTMLButtonElement>('play-button'),
+  stopButton: byId<HTMLButtonElement>('stop-button'),
+  tempoInput: byId<HTMLInputElement>('tempo-input'),
+  playbackStatus: byId('playback-status'),
 
-  fewerBarsButton: document.getElementById('fewer-bars-button'),
-  moreBarsButton: document.getElementById('more-bars-button'),
-  barsPerRowDisplay: document.getElementById('bars-per-row-display')
+  fewerBarsButton: byId<HTMLButtonElement>('fewer-bars-button'),
+  moreBarsButton: byId<HTMLButtonElement>('more-bars-button'),
+  barsPerRowDisplay: byId<HTMLOutputElement>('bars-per-row-display')
 };
 
 let isPlaying = false;
 
-function init() {
+function init(): void {
   // Populate the tonic and scale dropdowns.
   populateScaleControls();
 
   // Set initial control values.
-  elements.instrumentSelect.value = state.instrumentId;
-  elements.fretCountSelect.value = String(state.fretCount);
-  elements.durationSelect.value =
-    String(state.selectedDurationSlots);
-
-  elements.tempoInput.value = String(state.bpm);
-
-  elements.scaleOverlayToggle.checked =
-    state.scaleOverlay.enabled;
-
-  elements.scaleTonicSelect.value =
-    String(state.scaleOverlay.tonicPitchClass);
-
-  elements.scaleSelect.value =
-    state.scaleOverlay.scaleId;
-
-  elements.metronomeToggle.checked =
-    state.metronomeEnabled;
-
-  elements.clickVolume.value =
-    String(state.clickVolume);
+  syncControlsFromState();
 
   // Rhythm import and reset.
-  elements.rhythmFile.addEventListener(
-    'change',
-    handleRhythmImport
-  );
-
-  elements.rhythmReset.addEventListener(
-    'click',
-    handleRhythmReset
-  );
+  elements.rhythmFile.addEventListener('change', handleRhythmImport);
+  elements.rhythmReset.addEventListener('click', handleRhythmReset);
 
   // Instrument and fretboard size.
-  elements.instrumentSelect.addEventListener(
-    'change',
-    handleInstrumentChange
-  );
-
-  elements.fretCountSelect.addEventListener(
-    'change',
-    handleFretCountChange
-  );
+  elements.instrumentSelect.addEventListener('change', handleInstrumentChange);
+  elements.fretCountSelect.addEventListener('change', handleFretCountChange);
 
   // Tab display density.
   elements.fewerBarsButton.addEventListener('click', () => {
@@ -123,65 +92,28 @@ function init() {
   });
 
   // Scale overlay.
-  elements.scaleOverlayToggle.addEventListener(
-    'change',
-    handleScaleOverlayToggle
-  );
-
-  elements.scaleTonicSelect.addEventListener(
-    'change',
-    handleScaleTonicChange
-  );
-
-  elements.scaleSelect.addEventListener(
-    'change',
-    handleScaleChange
-  );
+  elements.scaleOverlayToggle.addEventListener('change', handleScaleOverlayToggle);
+  elements.scaleTonicSelect.addEventListener('change', handleScaleTonicChange);
+  elements.scaleSelect.addEventListener('change', handleScaleChange);
 
   // Note duration and editing.
-  elements.durationSelect.addEventListener(
-    'change',
-    handleDurationChange
-  );
-
-  elements.restButton.addEventListener(
-    'click',
-    handleInsertRest
-  );
-
-  elements.undoButton.addEventListener(
-    'click',
-    handleUndo
-  );
-
-  elements.clearButton.addEventListener(
-    'click',
-    handleClear
-  );
+  elements.durationSelect.addEventListener('change', handleDurationChange);
+  elements.restButton.addEventListener('click', handleInsertRest);
+  elements.undoButton.addEventListener('click', handleUndo);
+  elements.clearButton.addEventListener('click', handleClear);
 
   // Playback and tempo.
-  elements.playButton.addEventListener(
-    'click',
-    handlePlay
-  );
-
-  elements.stopButton.addEventListener(
-    'click',
-    handleStop
-  );
-
-  elements.tempoInput.addEventListener(
-    'change',
-    handleTempoChange
-  );
+  elements.playButton.addEventListener('click', handlePlay);
+  elements.stopButton.addEventListener('click', handleStop);
+  elements.tempoInput.addEventListener('change', handleTempoChange);
 
   // Metronome settings.
-  elements.metronomeToggle.addEventListener('change', (event) => {
-    state.metronomeEnabled = event.target.checked;
+  elements.metronomeToggle.addEventListener('change', () => {
+    state.metronomeEnabled = elements.metronomeToggle.checked;
   });
 
-  elements.clickVolume.addEventListener('input', (event) => {
-    state.clickVolume = Number(event.target.value);
+  elements.clickVolume.addEventListener('input', () => {
+    state.clickVolume = Number(elements.clickVolume.value);
   });
 
   setupMenu();
@@ -196,34 +128,8 @@ function init() {
     },
 
     onLoaded: () => {
-      elements.instrumentSelect.value = state.instrumentId;
-
-      elements.fretCountSelect.value =
-        String(state.fretCount);
-
-      elements.durationSelect.value =
-        String(state.selectedDurationSlots);
-
-      elements.tempoInput.value =
-        String(state.bpm);
-
-      elements.scaleOverlayToggle.checked =
-        state.scaleOverlay.enabled;
-
-      elements.scaleTonicSelect.value =
-        String(state.scaleOverlay.tonicPitchClass);
-
-      elements.scaleSelect.value =
-        state.scaleOverlay.scaleId;
-
-      elements.metronomeToggle.checked =
-        state.metronomeEnabled;
-
-      elements.clickVolume.value =
-        String(state.clickVolume);
-
+      syncControlsFromState();
       elements.playbackStatus.textContent = 'Ready';
-
       renderApp();
     }
   });
@@ -234,7 +140,19 @@ function init() {
   console.log('Tab Builder loaded');
 }
 
-function populateScaleControls() {
+function syncControlsFromState(): void {
+  elements.instrumentSelect.value = state.instrumentId;
+  elements.fretCountSelect.value = String(state.fretCount);
+  elements.durationSelect.value = String(state.selectedDurationSlots);
+  elements.tempoInput.value = String(state.bpm);
+  elements.scaleOverlayToggle.checked = state.scaleOverlay.enabled;
+  elements.scaleTonicSelect.value = String(state.scaleOverlay.tonicPitchClass);
+  elements.scaleSelect.value = state.scaleOverlay.scaleId;
+  elements.metronomeToggle.checked = state.metronomeEnabled;
+  elements.clickVolume.value = String(state.clickVolume);
+}
+
+function populateScaleControls(): void {
   for (const tonic of TONICS) {
     const option = document.createElement('option');
     option.value = String(tonic.pitchClass);
@@ -242,11 +160,13 @@ function populateScaleControls() {
     elements.scaleTonicSelect.append(option);
   }
 
-  const groups = new Map();
+  const groups = new Map<string, HTMLOptGroupElement>();
 
   for (const scale of SCALES) {
-    if (!groups.has(scale.group)) {
-      const group = document.createElement('optgroup');
+    let group = groups.get(scale.group);
+
+    if (!group) {
+      group = document.createElement('optgroup');
       group.label = scale.group;
 
       groups.set(scale.group, group);
@@ -257,11 +177,11 @@ function populateScaleControls() {
     option.value = scale.id;
     option.textContent = scale.name;
 
-    groups.get(scale.group).append(option);
+    group.append(option);
   }
 }
 
-function renderApp() {
+function renderApp(): void {
   renderFretboard(state, elements.fretboard, handleFretboardNoteClick);
   renderTab(state, elements.tabEditor);
   renderSelectedNote();
@@ -269,17 +189,17 @@ function renderApp() {
   updateControls();
 }
 
-function renderFretboardOnly() {
+function renderFretboardOnly(): void {
   renderFretboard(state, elements.fretboard, handleFretboardNoteClick);
 }
 
-function handleFretboardNoteClick(note) {
+function handleFretboardNoteClick(note: FretboardNote): void {
   if (isPlaying) {
     return;
   }
 
   // Start the preview directly from the user's click.
-  playPreviewNote(note.midi).catch((error) => {
+  playPreviewNote(note.midi).catch((error: unknown) => {
     console.error('Could not play note preview:', error);
   });
 
@@ -287,67 +207,67 @@ function handleFretboardNoteClick(note) {
 
   let event;
   try { event = addNoteEvent(state, note); }
-  catch (error) { elements.playbackStatus.textContent = error.message; return; }
+  catch (error) { elements.playbackStatus.textContent = errorMessage(error); return; }
 
   console.log('Inserted note event:', event);
 
   renderApp();
 }
 
-function handleInstrumentChange(event) {
+function handleInstrumentChange(): void {
   if (isPlaying) {
     return;
   }
 
-  setInstrument(state, event.target.value);
+  setInstrument(state, elements.instrumentSelect.value);
   renderApp();
 }
 
-function handleFretCountChange(event) {
+function handleFretCountChange(): void {
   if (isPlaying) {
     return;
   }
 
-  setFretCount(state, event.target.value);
+  setFretCount(state, elements.fretCountSelect.value);
   renderApp();
 }
 
-function handleScaleOverlayToggle(event) {
-  setScaleOverlayEnabled(state, event.target.checked);
+function handleScaleOverlayToggle(): void {
+  setScaleOverlayEnabled(state, elements.scaleOverlayToggle.checked);
   updateScaleControlAvailability();
   renderFretboardOnly();
 }
 
-function handleScaleTonicChange(event) {
-  setScaleTonic(state, event.target.value);
+function handleScaleTonicChange(): void {
+  setScaleTonic(state, elements.scaleTonicSelect.value);
   renderFretboardOnly();
 }
 
-function handleScaleChange(event) {
-  setScaleId(state, event.target.value);
+function handleScaleChange(): void {
+  setScaleId(state, elements.scaleSelect.value);
   renderFretboardOnly();
 }
 
-function handleDurationChange(event) {
-  setSelectedDuration(state, event.target.value);
+function handleDurationChange(): void {
+  setSelectedDuration(state, elements.durationSelect.value);
   renderCursorPosition();
 }
 
-function handleInsertRest() {
+function handleInsertRest(): void {
   if (isPlaying) {
     return;
   }
 
   let event;
   try { event = addRestEvent(state); }
-  catch (error) { elements.playbackStatus.textContent = error.message; return; }
+  catch (error) { elements.playbackStatus.textContent = errorMessage(error); return; }
 
   console.log('Inserted rest event:', event);
 
   renderApp();
 }
 
-function handleUndo() {
+function handleUndo(): void {
   if (isPlaying) {
     return;
   }
@@ -361,7 +281,7 @@ function handleUndo() {
   renderApp();
 }
 
-function handleClear() {
+function handleClear(): void {
   if (isPlaying || state.events.length === 0) {
     return;
   }
@@ -370,7 +290,7 @@ function handleClear() {
   renderApp();
 }
 
-async function handlePlay() {
+async function handlePlay(): Promise<void> {
   if (isPlaying) {
     return;
   }
@@ -390,12 +310,12 @@ async function handlePlay() {
     if (!started && isPlaying) handlePlaybackComplete();
   } catch (error) {
     stopPlayback(); handlePlaybackComplete();
-    elements.playbackStatus.textContent = `Playback failed: ${error.message}`;
+    elements.playbackStatus.textContent = `Playback failed: ${errorMessage(error)}`;
     console.error(error);
   }
 }
 
-function handlePlaybackPositionChange(slot) {
+function handlePlaybackPositionChange(slot: number | null): void {
   if (slot === null) {
     clearPlaybackPosition(state);
   } else {
@@ -405,7 +325,7 @@ function handlePlaybackPositionChange(slot) {
   renderPlaybackVisuals();
 }
 
-function handleStop() {
+function handleStop(): void {
   if (!isPlaying) {
     return;
   }
@@ -414,7 +334,7 @@ function handleStop() {
   handlePlaybackComplete();
 }
 
-function handlePlaybackComplete() {
+function handlePlaybackComplete(): void {
   clearPlaybackPosition(state);
 
   isPlaying = false;
@@ -424,13 +344,13 @@ function handlePlaybackComplete() {
   updateControls();
 }
 
-function handleTempoChange() {
+function handleTempoChange(): void {
   const bpm = getValidBpm();
   elements.tempoInput.value = String(bpm);
   state.bpm = bpm;
 }
 
-function getValidBpm() {
+function getValidBpm(): number {
   const inputBpm = Number(elements.tempoInput.value);
 
   if (!Number.isFinite(inputBpm)) {
@@ -446,7 +366,7 @@ function getValidBpm() {
   return clampedBpm;
 }
 
-function renderSelectedNote() {
+function renderSelectedNote(): void {
   if (!state.selectedNote) {
     elements.selectedNote.textContent = 'No note selected';
     return;
@@ -458,7 +378,7 @@ function renderSelectedNote() {
     `Selected: ${noteName} — string ${string}, fret ${fret}, MIDI ${midi}`;
 }
 
-function renderCursorPosition() {
+function renderCursorPosition(): void {
   const position = getCursorPosition(state);
   if (position.ended) {
     elements.cursorDisplay.textContent = 'Cursor: end of imported chart';
@@ -470,15 +390,15 @@ function renderCursorPosition() {
     `Cursor: Bar ${position.bar}, beat ${position.beat}${offBeatText}`;
 }
 
-function renderPlaybackVisuals() {
+function renderPlaybackVisuals(): void {
   updateTabPlayback(state, elements.tabEditor);
   const keys = new Set(state.activeNotes.map(n => `${n.string}:${n.fret}`));
-  elements.fretboard.querySelectorAll('.fret').forEach(button => {
+  elements.fretboard.querySelectorAll<HTMLElement>('.fret').forEach(button => {
     button.classList.toggle('is-playing', keys.has(`${button.dataset.string}:${button.dataset.fret}`));
   });
 }
 
-function updateControls() {
+function updateControls(): void {
   const hasEvents = state.events.length > 0;
 
   elements.undoButton.disabled = !hasEvents || isPlaying;
@@ -506,7 +426,7 @@ function updateControls() {
   updateBarDensityControls();
 }
 
-function updateScaleControlAvailability() {
+function updateScaleControlAvailability(): void {
   const scaleControlsDisabled =
     !state.scaleOverlay.enabled || isPlaying;
 
@@ -514,7 +434,7 @@ function updateScaleControlAvailability() {
   elements.scaleSelect.disabled = scaleControlsDisabled;
 }
 
-function changeBarsPerRow(change) {
+function changeBarsPerRow(change: number): void {
   if (isPlaying) {
     return;
   }
@@ -525,7 +445,7 @@ function changeBarsPerRow(change) {
   updateBarDensityControls();
 }
 
-function updateBarDensityControls() {
+function updateBarDensityControls(): void {
   elements.barsPerRowDisplay.textContent = String(state.barsPerRow);
 
   elements.fewerBarsButton.disabled =
@@ -535,8 +455,8 @@ function updateBarDensityControls() {
     isPlaying || state.barsPerRow >= 8;
 }
 
-async function handleRhythmImport(event) {
-  const file = event.target.files[0];
+async function handleRhythmImport(): Promise<void> {
+  const file = elements.rhythmFile.files?.[0];
   if (!file) return;
   try {
     if (file.size > 1000000) throw new Error('Rhythm file must be smaller than 1 MB.');
@@ -548,11 +468,11 @@ async function handleRhythmImport(event) {
     elements.playbackStatus.textContent = 'Rhythm imported. Press Play to hear the empty chart.';
     renderApp();
   } catch (error) {
-    elements.playbackStatus.textContent = `Import failed: ${error.message}`;
-  } finally { event.target.value = ''; }
+    elements.playbackStatus.textContent = `Import failed: ${errorMessage(error)}`;
+  } finally { elements.rhythmFile.value = ''; }
 }
 
-function handleRhythmReset() {
+function handleRhythmReset(): void {
   if (isPlaying) {
     return;
   }
@@ -577,5 +497,6 @@ function handleRhythmReset() {
 
   renderApp();
 }
+
 
 init();

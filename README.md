@@ -1,11 +1,36 @@
-Even though the app can ultimately be packaged as one self-contained HTML file, developing it as separate files is much easier to maintain. Later, you can bundle or inline everything into a single index.html if you want a portable file.
+# MaxTabs
 
-Folder/file	Purpose
-index.html	App shell: fretboard, tab area, transport controls, chord panel
-styles/	All CSS, keeping UI styling separate from behaviour
-scripts/	JavaScript modules, each with one clear responsibility
-data/	Editable JSON for tunings, instruments, and chord shapes
-docs/	Durable project memory for you and any AI assistant
-tests/	Manual test checklists now; automated tests later
-examples/	Sample songs for testing import/export and playback
-.vscode/	Workspace-specific editor settings
+A browser-based guitar and bass tab builder: click a fretboard to write tab, overlay scales and modes to guide composition, play it back, and import mixed-meter rhythm charts from the companion metronome.
+
+## Getting started
+
+Requires Node.js 20+.
+
+```bash
+npm install
+npm run dev        # dev server at http://localhost:5173
+```
+
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Vite dev server with hot reload |
+| `npm test` | Unit tests (Vitest) |
+| `npm run test:watch` | Tests in watch mode |
+| `npm run typecheck` | TypeScript strict type check |
+| `npm run build` | Type check, then production build into `dist/` |
+| `npm run preview` | Serve the production build |
+
+## Layout
+
+| Path | Purpose |
+|---|---|
+| `index.html` | App shell |
+| `src/` | TypeScript source; each module has one responsibility |
+| `src/importers/` | Importers for external formats (metronomo-composto rhythm charts) |
+| `src/styles/` | CSS |
+| `public/` | Static files copied as-is, including the companion `metronomo-composto.html` |
+| `tests/unit/` | Vitest unit tests; `tests/fixtures/` holds sample files |
+| `tests/manual-test-checklist.md` | Browser checks that unit tests cannot cover |
+| `docs/` | Architecture, decisions, roadmap |
+
+The pre-migration vanilla JS alpha is preserved at the git tag `alpha-concept`.

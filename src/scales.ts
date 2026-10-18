@@ -1,4 +1,19 @@
-export const TONICS = [
+export interface Tonic {
+  pitchClass: number;
+  label: string;
+}
+
+export interface Scale {
+  id: string;
+  group: string;
+  name: string;
+  /** Semitones above the tonic, ascending from 0. */
+  intervals: number[];
+  /** Degree label for each interval, same length as `intervals`. */
+  degrees: string[];
+}
+
+export const TONICS: Tonic[] = [
   { pitchClass: 0, label: 'C' },
   { pitchClass: 1, label: 'C# / Db' },
   { pitchClass: 2, label: 'D' },
@@ -13,7 +28,7 @@ export const TONICS = [
   { pitchClass: 11, label: 'B' }
 ];
 
-export const SCALES = [
+export const SCALES: Scale[] = [
   {
     id: 'major',
     group: 'Major & Modes',
@@ -100,6 +115,6 @@ export const SCALES = [
   }
 ];
 
-export function getScale(scaleId) {
+export function getScale(scaleId: string): Scale | undefined {
   return SCALES.find((scale) => scale.id === scaleId);
 }

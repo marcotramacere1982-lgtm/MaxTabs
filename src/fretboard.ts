@@ -1,5 +1,6 @@
-import { getInstrument } from './state.js';
-import { getScale } from './scales.js';
+import { requireInstrument } from './state';
+import { getScale, type Scale } from './scales';
+import type { AppState, FretboardNote } from './types';
 
 const NOTE_NAMES = [
   'C',
@@ -18,14 +19,18 @@ const NOTE_NAMES = [
 
 const MARKER_FRETS = new Set([3, 5, 7, 9, 12, 15, 17, 19, 21]);
 
-export function renderFretboard(state, container, onNoteClicked) {
-  const instrument = getInstrument(state.instrumentId);
+export function renderFretboard(
+  state: AppState,
+  container: HTMLElement,
+  onNoteClicked: (note: FretboardNote) => void
+): void {
+  const instrument = requireInstrument(state.instrumentId);
   const activeScale = state.scaleOverlay.enabled
     ? getScale(state.scaleOverlay.scaleId)
-    : null;
+    : undefined;
 
   container.replaceChildren();
-  container.style.setProperty('--fret-count', state.fretCount + 1);
+  container.style.setProperty('--fret-count', String(state.fretCount + 1));
 
   for (const stringData of [...instrument.strings].reverse()) {
     const row = document.createElement('div');
@@ -91,7 +96,7 @@ export function renderFretboard(state, container, onNoteClicked) {
       }
 
       button.addEventListener('click', () => {
-        const note = {
+        const note: FretboardNote = {
           string: stringData.number,
           stringLabel: stringData.label,
           fret,
@@ -111,7 +116,11 @@ export function renderFretboard(state, container, onNoteClicked) {
   renderFretMarkers(state, container);
 }
 
-function getScaleToneInfo(state, scale, midi) {
+function getScaleToneInfo(
+  state: AppState,
+  scale: Scale | undefined,
+  midi: number
+): { degree: string; isRoot: boolean } | null {
   if (!scale) {
     return null;
   }
@@ -119,22 +128,23 @@ function getScaleToneInfo(state, scale, midi) {
   const pitchClass = getPitchClass(midi);
   const interval = (pitchClass - state.scaleOverlay.tonicPitchClass + 12) % 12;
   const scaleIndex = scale.intervals.indexOf(interval);
+  const degree = scale.degrees[scaleIndex];
 
-  if (scaleIndex === -1) {
+  if (degree === undefined) {
     return null;
   }
 
   return {
-    degree: scale.degrees[scaleIndex],
+    degree,
     isRoot: interval === 0
   };
 }
 
-function getPitchClass(midi) {
+function getPitchClass(midi: number): number {
   return ((midi % 12) + 12) % 12;
 }
 
-function renderFretMarkers(state, container) {
+function renderFretMarkers(state: AppState, container: HTMLElement): void {
   const markerRow = document.createElement('div');
   markerRow.className = 'fretboard-marker-row';
 
@@ -155,8 +165,8 @@ function renderFretMarkers(state, container) {
   container.append(markerRow);
 }
 
-function midiToNoteName(midi) {
-  const note = NOTE_NAMES[midi % 12];
+export function midiToNoteName(midi: number): string {
+  const note = NOTE_NAMES[getPitchClass(midi)];
   const octave = Math.floor(midi / 12) - 1;
 
   return `${note}${octave}`;

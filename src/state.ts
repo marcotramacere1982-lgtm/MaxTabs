@@ -1,6 +1,13 @@
-import { barAt } from './timeline.js';
+import { barAt } from './timeline';
+import type {
+  AppState,
+  FretboardNote,
+  Instrument,
+  RhythmChart,
+  TabEvent
+} from './types';
 
-const INSTRUMENTS = {
+const INSTRUMENTS: Record<string, Instrument> = {
   'guitar-standard': {
     name: 'Guitar — Standard',
     strings: [
@@ -36,7 +43,7 @@ const INSTRUMENTS = {
   }
 };
 
-export function createState() {
+export function createState(): AppState {
   return {
     instrumentId: 'guitar-standard',
     fretCount: 15,
@@ -66,44 +73,51 @@ export function createState() {
   };
 }
 
-export function getInstrument(instrumentId) {
+export function getInstrument(instrumentId: string): Instrument | undefined {
   return INSTRUMENTS[instrumentId];
 }
 
-export function getSlotsPerBar(state) {
+/** Like getInstrument, for ids that the app itself has already validated. */
+export function requireInstrument(instrumentId: string): Instrument {
+  const instrument = INSTRUMENTS[instrumentId];
+  if (!instrument) throw new Error(`Unknown instrument: ${instrumentId}`);
+  return instrument;
+}
+
+export function getSlotsPerBar(state: AppState): number {
   return state.beatsPerBar * state.slotsPerBeat;
 }
 
-export function setInstrument(state, instrumentId) {
+export function setInstrument(state: AppState, instrumentId: string): void {
   state.instrumentId = instrumentId;
   state.selectedNote = null;
   clearEvents(state);
 }
 
-export function setFretCount(state, fretCount) {
+export function setFretCount(state: AppState, fretCount: number | string): void {
   state.fretCount = Number(fretCount);
   state.selectedNote = null;
 }
 
-export function setSelectedDuration(state, durationSlots) {
+export function setSelectedDuration(state: AppState, durationSlots: number | string): void {
   state.selectedDurationSlots = Number(durationSlots);
 }
 
-export function setScaleOverlayEnabled(state, enabled) {
+export function setScaleOverlayEnabled(state: AppState, enabled: boolean): void {
   state.scaleOverlay.enabled = Boolean(enabled);
 }
 
-export function setScaleTonic(state, tonicPitchClass) {
+export function setScaleTonic(state: AppState, tonicPitchClass: number | string): void {
   state.scaleOverlay.tonicPitchClass = Number(tonicPitchClass);
 }
 
-export function setScaleId(state, scaleId) {
+export function setScaleId(state: AppState, scaleId: string): void {
   state.scaleOverlay.scaleId = scaleId;
 }
 
-export function addNoteEvent(state, note) {
+export function addNoteEvent(state: AppState, note: FretboardNote): TabEvent {
   validateInsertion(state);
-  const event = {
+  const event: TabEvent = {
     id: state.nextEventId,
     type: 'note',
     startSlot: state.cursorSlot,
@@ -126,9 +140,9 @@ export function addNoteEvent(state, note) {
   return event;
 }
 
-export function addRestEvent(state) {
+export function addRestEvent(state: AppState): TabEvent {
   validateInsertion(state);
-  const event = {
+  const event: TabEvent = {
     id: state.nextEventId,
     type: 'rest',
     startSlot: state.cursorSlot,
@@ -144,12 +158,12 @@ export function addRestEvent(state) {
   return event;
 }
 
-export function undoLastEvent(state) {
-  if (state.events.length === 0) {
+export function undoLastEvent(state: AppState): TabEvent | null {
+  const removedEvent = state.events.pop();
+
+  if (!removedEvent) {
     return null;
   }
-
-  const removedEvent = state.events.pop();
 
   state.cursorSlot = removedEvent.startSlot;
   state.nextEventId -= 1;
@@ -157,37 +171,46 @@ export function undoLastEvent(state) {
   return removedEvent;
 }
 
-export function clearEvents(state) {
+export function clearEvents(state: AppState): void {
   state.events = [];
   state.cursorSlot = 0;
   state.nextEventId = 1;
 }
 
-export function getCursorPosition(state) {
+export type CursorPosition =
+  | { ended: true }
+  | { ended: false; bar: number; beat: number; isOffBeat: boolean; denominator: number };
+
+export function getCursorPosition(state: AppState): CursorPosition {
   const bar = barAt(state, state.cursorSlot);
-  if (!bar) return {ended:true};
+  if (!bar) return { ended: true };
   const bars = state.rhythmChart?.bars;
   const index = bars ? bars.indexOf(bar) : Math.floor(bar.startSlot / 8);
   const offset = state.cursorSlot - bar.startSlot;
-  return {bar:index+1, beat:Math.floor(offset/bar.pulseSlots)+1,
-    isOffBeat:offset % bar.pulseSlots !== 0, denominator:bar.denominator};
+  return {
+    ended: false,
+    bar: index + 1,
+    beat: Math.floor(offset / bar.pulseSlots) + 1,
+    isOffBeat: offset % bar.pulseSlots !== 0,
+    denominator: bar.denominator
+  };
 }
 
-function validateInsertion(state) {
+function validateInsertion(state: AppState): void {
   const bar = barAt(state, state.cursorSlot);
   if (!bar) throw new Error('End of imported chart. Undo or clear notes to continue.');
   if (state.cursorSlot + state.selectedDurationSlots > bar.startSlot + bar.lengthSlots)
     throw new Error('This duration crosses a bar line. Choose a shorter duration.');
 }
 
-export function applyRhythmChart(state, chart) {
+export function applyRhythmChart(state: AppState, chart: RhythmChart): void {
   clearEvents(state);
   clearPlaybackPosition(state);
   state.selectedNote = null;
   state.rhythmChart = chart;
 }
 
-export function setPlaybackPosition(state, playbackSlot) {
+export function setPlaybackPosition(state: AppState, playbackSlot: number): void {
   state.playbackSlot = playbackSlot;
 
   const activeEvent = state.events.find((event) => {
@@ -203,12 +226,12 @@ export function setPlaybackPosition(state, playbackSlot) {
   state.activeNotes = activeEvent ? activeEvent.notes : [];
 }
 
-export function clearPlaybackPosition(state) {
+export function clearPlaybackPosition(state: AppState): void {
   state.playbackSlot = null;
   state.activeNotes = [];
 }
 
-export function setBarsPerRow(state, barsPerRow) {
+export function setBarsPerRow(state: AppState, barsPerRow: number | string): void {
   const value = Number(barsPerRow);
 
   if (!Number.isFinite(value)) {
