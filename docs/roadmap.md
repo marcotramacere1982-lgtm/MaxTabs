@@ -29,8 +29,10 @@
 - [x] Deep visual restyle (3a): "Soft + Wood" design system, light/dark/system theme, new layout
 - [x] Realistic SVG fretboard: click strings directly, pluck animation, playback highlights (3a)
 - [x] Plucked-string voice for previews and playback (stand-in until Phase 4 samples)
-- [ ] SVG tab renderer (3b)
-- [ ] Free cursor navigation and in-place editing
+- [x] SVG tab renderer (3b): duration-based spacing, line breaking, stems/beams/flags, rests,
+      dots, time signatures, chord symbols, ties, cursor and playhead
+- [x] Cursor navigation (click, ←/→) and in-place editing: overwrite, Shift+click chords,
+      Delete/Backspace, Insert, duration change on the event under the cursor
 - [ ] Responsive, touch-friendly fretboard (scrolls sideways on phones; needs a phone-sized layout)
 - [ ] Overlay follows the harmony of the bar under the cursor (model ready; needs bar key/chord editing UI)
 - [ ] Tuplet and tie entry (model ready)

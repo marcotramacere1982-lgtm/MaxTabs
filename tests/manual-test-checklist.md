@@ -19,6 +19,15 @@ Browser behaviour that unit tests cannot cover. Run with `npm run dev`.
 - [ ] Writing past the last bar of a free chart adds a bar.
 - [ ] At the end of an imported chart, insertion is refused.
 
+## Tab editing
+- [ ] Clicking a note in the tab puts the cursor on it; clicking free space after the notes puts it there.
+- [ ] ←/→ step through notes and rests across bar lines.
+- [ ] With the cursor on a note, clicking a string replaces it (same duration) and moves on.
+- [ ] Shift+click adds chord notes to the event under the cursor, or to the one just entered.
+- [ ] Delete removes the note under the cursor; Backspace removes the one before; Insert adds a rest.
+- [ ] A duration chip changes the note under the cursor when the bar has room.
+- [ ] Rhythm: eighths and shorter are beamed per beat; rests and dots are drawn; rows wrap with the window.
+
 ## Undo / redo
 - [ ] Undo/Redo buttons and Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z work; Ctrl+Z in the title field edits text.
 - [ ] Instrument change with a different string count clears notes; Undo brings them back.

@@ -658,7 +658,7 @@ input:disabled {
   color: var(--ink);
 }
 
-/* ---------- Tab (grid view until the SVG renderer lands) ---------- */
+/* ---------- Tab ---------- */
 .cursor-display {
   font-variant-numeric: tabular-nums;
 }
@@ -677,116 +677,148 @@ input:disabled {
 }
 
 .tab-editor {
-  overflow-x: auto;
-  min-height: 200px;
-  padding: 14px 14px 10px;
+  min-height: 160px;
+  padding: 16px 14px 12px;
   border-radius: var(--radius-md);
   background: var(--tab-bg);
   box-shadow: var(--sh-in);
-  font-family: var(--mono);
+  touch-action: manipulation;
 }
 
-.tab-system+.tab-system {
-  margin-top: 20px;
+.tab-svg {
+  display: block;
+  cursor: text;
+  user-select: none;
 }
 
-.tab-grid {
-  display: grid;
-  grid-template-columns: 2rem repeat(var(--slot-count), minmax(1.65rem, 1fr));
-  width: 100%;
-  min-width: max-content;
+.tab-line {
+  stroke: var(--tab-line);
+  stroke-width: 1;
 }
 
-.tab-bar-label {
-  height: 1.5rem;
-  padding-left: .35rem;
-  color: var(--muted);
-  font-family: var(--ui);
-  font-size: 12px;
-  font-weight: 600;
+.tab-barline {
+  stroke: var(--tab-bar);
+  stroke-width: 1.5;
 }
 
-.tab-grid-label,
-.tab-grid-header-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
+.tab-barline.is-final {
+  stroke-width: 4;
 }
 
-.tab-grid-label {
-  justify-content: flex-end;
-  padding-right: .5rem;
-  color: var(--muted);
-  font-weight: 700;
-  font-size: 12px;
+.tab-label,
+.tab-clef {
+  fill: var(--muted);
+  font: 700 11px var(--mono);
+  text-anchor: middle;
+  dominant-baseline: central;
 }
 
-.tab-grid-header-cell {
-  height: 1.5rem;
-  color: var(--muted);
-  font-size: 11px;
+.tab-clef {
+  fill: var(--tab-ink);
+  font: 800 11px var(--display);
 }
 
-.tab-grid-header-cell.accent-2 {
-  color: var(--ink);
-  font-weight: 700;
+.tab-barnum {
+  fill: var(--muted);
+  font: 600 10px var(--mono);
 }
 
-.tab-cell {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 1.7rem;
-  min-width: 0;
-  color: var(--tab-ink);
+.tab-barnum.is-virtual {
+  opacity: .5;
 }
 
-.tab-cell::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--tab-line);
+.tab-chord {
+  fill: var(--accent-ink);
+  font: 700 13px var(--display);
+}
+
+.tab-timesig {
+  fill: var(--tab-ink);
+  font: 800 19px var(--display);
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.tab-knockout {
+  fill: var(--tab-bg);
+}
+
+.tab-fret {
+  fill: var(--tab-ink);
+  font: 700 13px var(--mono);
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.tab-fret.is-tied {
+  fill: var(--muted);
+}
+
+.tab-tie {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.2;
+}
+
+.tab-stem,
+.tab-beam,
+.tab-flag {
+  stroke: var(--tab-ink);
+  stroke-linecap: round;
+  fill: none;
+}
+
+.tab-stem {
+  stroke-width: 1.3;
+}
+
+.tab-beam {
+  stroke-width: 3;
+  stroke-linecap: butt;
+}
+
+.tab-flag {
+  stroke-width: 1.6;
+}
+
+.tab-dot,
+.tab-rest {
+  fill: var(--tab-ink);
+}
+
+.tab-rest-line {
+  fill: none;
+  stroke: var(--tab-ink);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tab-tuplet {
+  fill: var(--muted);
+  font: 700 10px var(--mono);
+  text-anchor: middle;
+}
+
+.tab-cursor {
+  fill: var(--cursor);
+  stroke: var(--cursor-edge);
+  stroke-width: 1;
+}
+
+.tab-cursor.is-append {
+  animation: tab-caret 1.1s ease-in-out infinite;
+}
+
+@keyframes tab-caret {
+  50% { opacity: .35; }
+}
+
+.tab-playhead {
+  fill: var(--playhead);
+  stroke: var(--playhead-edge);
+  stroke-width: 1;
   pointer-events: none;
-}
-
-.tab-fret-number {
-  position: relative;
-  z-index: 1;
-  padding: 0 .2rem;
-  background: var(--tab-bg);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.tab-grid-header-cell.is-bar-start,
-.tab-cell.is-bar-start {
-  border-left: 1.5px solid var(--tab-bar);
-}
-
-.tab-grid-header-cell.is-bar-end,
-.tab-cell.is-bar-end {
-  border-right: 1.5px solid var(--tab-bar);
-}
-
-.tab-cell.is-edit-cursor {
-  background: var(--cursor);
-  box-shadow: inset 0 0 0 1px var(--cursor-edge);
-}
-
-.tab-cell.is-playhead {
-  background: var(--playhead);
-  box-shadow: inset 0 0 0 1px var(--playhead-edge);
-}
-
-.tab-cell.is-edit-cursor .tab-fret-number,
-.tab-cell.is-playhead .tab-fret-number {
-  background: transparent;
 }
 
 /* ---------- Status ---------- */

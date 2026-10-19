@@ -6,7 +6,7 @@ import { getScale } from '../model/scales';
 import { mainTrack, type Key } from '../model/song';
 import { midiToNoteName, pitchClassOf, stringsOf, type StringInfo } from '../model/pitch';
 import { harmonyAt } from '../model/harmony';
-import { cursorPosition } from '../model/editing';
+import { currentEvent, cursorPosition } from '../model/editing';
 import type { FretPosition, FretboardNote, UiState } from './uiState';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -62,7 +62,8 @@ export class FretboardView {
   private layout: Layout | null = null;
   private readonly root: SVGSVGElement;
 
-  constructor(container: HTMLElement, private readonly onNote: (note: FretboardNote) => void) {
+  constructor(container: HTMLElement,
+    private readonly onNote: (note: FretboardNote, options: { chord: boolean }) => void) {
     this.root = svg('svg', { role: 'presentation' });
     container.replaceChildren(this.root);
     this.root.addEventListener('pointerdown', event => this.handlePointer(event));
@@ -74,7 +75,7 @@ export class FretboardView {
     const key = ui.view.overlayEnabled ? overlayKey(ui) : null;
     const structureKey = JSON.stringify([tuning, ui.view.fretCount, key]);
     if (this.layout?.key !== structureKey) this.build(tuning, ui.view.fretCount, key, structureKey);
-    this.updateDynamic(ui.selectedNote, ui.activeNotes);
+    this.updateDynamic(currentEvent(ui.doc)?.notes ?? [], ui.activeNotes);
   }
 
   /** Vibrate a string and flash the fretted position (on click and during playback). */
@@ -88,8 +89,8 @@ export class FretboardView {
     restartAnimation(layout.flash, 'is-on');
   }
 
-  /** Highlight positions without plucking (e.g. playback of held notes). */
-  private updateDynamic(selected: FretPosition | null, active: FretPosition[]): void {
+  /** Ring the notes being edited and fill the ones sounding, without plucking. */
+  private updateDynamic(selected: readonly FretPosition[], active: readonly FretPosition[]): void {
     const layout = this.layout;
     if (!layout) return;
     layout.dynamic.replaceChildren();
@@ -97,9 +98,9 @@ export class FretboardView {
       const row = layout.rows.find(r => r.number === note.string);
       if (row) svg('circle', { class: 'fb-active', cx: this.noteX(note.fret), cy: row.y, r: 9 }, layout.dynamic);
     }
-    if (selected) {
-      const row = layout.rows.find(r => r.number === selected.string);
-      if (row) svg('circle', { class: 'fb-selected', cx: this.noteX(selected.fret), cy: row.y, r: 13 }, layout.dynamic);
+    for (const note of selected) {
+      const row = layout.rows.find(r => r.number === note.string);
+      if (row) svg('circle', { class: 'fb-selected', cx: this.noteX(note.fret), cy: row.y, r: 13 }, layout.dynamic);
     }
   }
 
@@ -123,7 +124,7 @@ export class FretboardView {
     const fret = Number(hit.dataset.fret);
     const midi = row.midi + fret;
     this.pluck({ string: row.number, fret });
-    this.onNote({ string: row.number, fret, midi, noteName: midiToNoteName(midi) });
+    this.onNote({ string: row.number, fret, midi, noteName: midiToNoteName(midi) }, { chord: event.shiftKey });
   }
 
   private build(tuning: number[], fretCount: number, key: Key | null, structureKey: string): void {

@@ -1,196 +1,334 @@
-// Grid tab view. Each row of bars is split into equal columns as fine as its content needs
-// (at least eighth notes); Phase 3 replaces this with an SVG renderer.
+// SVG tab view: tab staff with fret numbers, rhythm stems and beams below, bar lines, time
+// signatures, chord symbols, ties, the edit cursor and the playhead. Clicking places the cursor.
 
 import { mainTrack, type BarDef, type TabEvent } from '../model/song';
-import { stringsOf, type StringInfo } from '../model/pitch';
-import { layoutBarDefs, subdivisionLabel, type BarLayout } from '../model/timeline';
-import { PPQ } from '../model/time';
+import { stringsOf } from '../model/pitch';
+import { layoutBarDefs, type BarLayout } from '../model/timeline';
 import { cursorPosition } from '../model/editing';
 import { chordSymbol } from '../model/harmony';
-import { placeEvents, type PlacedEvent } from '../model/schedule';
+import { layoutTab, TIME_SIGNATURE_WIDTH, type BarBox, type EventBox, type SystemBox } from './tabLayout';
 import type { UiState } from './uiState';
 
-/** Widest column: an eighth note. */
-const MAX_COLUMN_TICKS = PPQ / 2;
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const LABEL_W = 50;
+const TOP = 30;
+const STRING_GAP = 13;
+const STEM_GAP = 9;
+const STEM = 22;
+const SYSTEM_GAP = 22;
+const NOTE_OFFSET = 10;
+const BEAM_GAP = 4;
 
-interface Column {
-  start: number;
-  end: number;
-  cells: HTMLElement[];
+type Attrs = Record<string, string | number>;
+
+function svg<K extends keyof SVGElementTagNameMap>(name: K, attrs: Attrs = {}, parent?: Element): SVGElementTagNameMap[K] {
+  const node = document.createElementNS(SVG_NS, name);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  parent?.append(node);
+  return node;
 }
 
-const columnIndex = new WeakMap<HTMLElement, Column[]>();
-
-function gcd(a: number, b: number): number {
-  while (b) [a, b] = [b, a % b];
-  return a;
+function text(parent: Element, x: number, y: number, content: string, className: string): SVGTextElement {
+  const node = svg('text', { x, y, class: className }, parent);
+  node.textContent = content;
+  return node;
 }
 
-/** Bars to draw: the song's bars, plus padding bars for a free timeline so rows are full and the cursor shows. */
-function displayBars(ui: UiState): { layout: BarLayout[]; defs: BarDef[] } {
-  const { song, cursor } = ui.doc;
-  const defs = [...song.timeline.bars];
-  if (song.timeline.extendable) {
-    const last = defs[defs.length - 1];
-    const needed = Math.max(defs.length, cursor.bar + 1);
-    const count = Math.ceil(needed / ui.view.barsPerRow) * ui.view.barsPerRow;
-    while (last && defs.length < count) defs.push({ time: { ...last.time } });
+interface PlacedSystem {
+  box: SystemBox;
+  top: number;
+  staffTop: number;
+  staffBottom: number;
+  bottom: number;
+}
+
+export interface TabViewCallbacks {
+  /** The user clicked a position in the tab. */
+  onCursor: (bar: number, index: number) => void;
+}
+
+export class TabView {
+  private readonly root: SVGSVGElement;
+  private systems: PlacedSystem[] = [];
+  private playhead: SVGRectElement | null = null;
+  private last: UiState | null = null;
+  private lastWidth = 0;
+
+  constructor(private readonly container: HTMLElement, private readonly callbacks: TabViewCallbacks) {
+    this.root = svg('svg', { class: 'tab-svg', role: 'presentation' });
+    container.replaceChildren(this.root);
+    this.root.addEventListener('pointerdown', event => this.handlePointer(event));
+    new ResizeObserver(() => {
+      const width = this.availableWidth();
+      if (this.last && Math.abs(width - this.lastWidth) > 1) this.render(this.last);
+    }).observe(container);
   }
-  return { layout: layoutBarDefs(defs, song.tempo), defs };
+
+  private availableWidth(): number {
+    const style = getComputedStyle(this.container);
+    const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    return Math.max(320, this.container.clientWidth - padding);
+  }
+
+  render(ui: UiState): void {
+    this.last = ui;
+    const { song } = ui.doc;
+    const track = mainTrack(song);
+    const strings = stringsOf(track.tuning);
+    const width = this.availableWidth();
+    this.lastWidth = width;
+
+    // A free timeline shows one empty bar past the end to write into.
+    const defs: BarDef[] = [...song.timeline.bars];
+    const lastDef = defs[defs.length - 1];
+    if (song.timeline.extendable && lastDef) defs.push({ time: { ...lastDef.time } });
+    const bars = layoutBarDefs(defs, song.tempo);
+    const systems = layoutTab({
+      bars, defs, trackBars: track.bars, width: width - LABEL_W - 2, maxBarsPerRow: ui.view.barsPerRow
+    });
+
+    const root = this.root;
+    root.replaceChildren();
+    const staffHeight = STRING_GAP * (strings.length - 1);
+    let y = 0;
+    this.systems = systems.map(box => {
+      const placed = {
+        box, top: y, staffTop: y + TOP, staffBottom: y + TOP + staffHeight,
+        bottom: y + TOP + staffHeight + STEM_GAP + STEM + 14
+      };
+      y = placed.bottom + SYSTEM_GAP;
+      return placed;
+    });
+    const height = Math.max(0, y - SYSTEM_GAP);
+    root.setAttribute('width', String(width));
+    root.setAttribute('height', String(height));
+    root.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+    const position = cursorPosition(ui.doc);
+    const cursorLayer = svg('g', {}, root);
+    const finalBar = song.timeline.extendable ? -1 : song.timeline.bars.length - 1;
+
+    this.systems.forEach((system, s) => {
+      const g = svg('g', {}, root);
+      const right = LABEL_W + system.box.width;
+      strings.forEach((string, i) => {
+        const lineY = system.staffBottom - i * STRING_GAP;
+        svg('line', { class: 'tab-line', x1: LABEL_W, x2: right, y1: lineY, y2: lineY }, g);
+        text(g, LABEL_W - 12, lineY, string.label, 'tab-label');
+      });
+      if (s === 0) {
+        const mid = (system.staffTop + system.staffBottom) / 2;
+        ['T', 'A', 'B'].forEach((letter, i) => text(g, 12, mid + (i - 1) * 11, letter, 'tab-clef'));
+      }
+      svg('line', { class: 'tab-barline', x1: LABEL_W, x2: LABEL_W, y1: system.staffTop, y2: system.staffBottom }, g);
+
+      for (const bar of system.box.bars) {
+        const x0 = LABEL_W + bar.x;
+        const x1 = x0 + bar.width;
+        const isFinal = bar.index === finalBar;
+        svg('line', {
+          class: isFinal ? 'tab-barline is-final' : 'tab-barline', x1, x2: x1, y1: system.staffTop, y2: system.staffBottom
+        }, g);
+        const isVirtual = bar.index >= song.timeline.bars.length;
+        text(g, x0 + 4, system.top + 10, String(bar.index + 1), isVirtual ? 'tab-barnum is-virtual' : 'tab-barnum');
+        if (bar.showTime) this.drawTimeSignature(g, x0 + bar.contentX - TIME_SIGNATURE_WIDTH + 8, system, bar.bar);
+        for (const change of bar.def.chords ?? []) {
+          text(g, x0 + tickX(bar, bar.bar.startTick + change.tick) + 2, system.top + 22, chordSymbol(change.chord), 'tab-chord');
+        }
+        this.drawBarEvents(g, system, bar, x0, strings.length);
+      }
+
+      if (!position.ended) {
+        for (const bar of system.box.bars) {
+          if (bar.index !== position.bar) continue;
+          const event = bar.events[ui.doc.cursor.index];
+          const x0 = LABEL_W + bar.x;
+          const [cx, cw] = event
+            ? [x0 + event.x, event.width]
+            : [x0 + (bar.append?.x ?? bar.contentX), Math.min(22, bar.append?.width ?? 22)];
+          svg('rect', {
+            class: event ? 'tab-cursor' : 'tab-cursor is-append',
+            x: cx, y: system.staffTop - 9, width: cw, height: system.staffBottom - system.staffTop + 18, rx: 6
+          }, cursorLayer);
+        }
+      }
+    });
+
+    this.playhead = svg('rect', { class: 'tab-playhead', x: -100, y: 0, width: 0, height: 0, rx: 6 }, root);
+    this.updatePlayback(ui);
+  }
+
+  private drawTimeSignature(g: SVGGElement, x: number, system: PlacedSystem, bar: BarLayout): void {
+    const mid = (system.staffTop + system.staffBottom) / 2;
+    svg('rect', { class: 'tab-knockout', x: x - 9, y: system.staffTop + 1, width: 18, height: system.staffBottom - system.staffTop - 2 }, g);
+    text(g, x, mid - 9, String(bar.numerator), 'tab-timesig');
+    text(g, x, mid + 10, String(bar.denominator), 'tab-timesig');
+  }
+
+  private drawBarEvents(g: SVGGElement, system: PlacedSystem, bar: BarBox, x0: number, stringCount: number): void {
+    const stemTop = system.staffBottom + STEM_GAP;
+    const stemEnd = stemTop + STEM;
+    const lineY = (stringNumber: number) => system.staffBottom - (stringCount - stringNumber) * STRING_GAP;
+
+    bar.events.forEach((box, i) => {
+      const x = x0 + box.x + NOTE_OFFSET;
+      const { event } = box;
+      if (event.notes.length === 0) {
+        drawRest(g, x, (system.staffTop + system.staffBottom) / 2, event.duration.value);
+      }
+      for (const note of event.notes) {
+        const y = lineY(note.string);
+        const label = note.tie ? `(${note.fret})` : String(note.fret);
+        const w = label.length * 7.6 + 4;
+        svg('rect', { class: 'tab-knockout', x: x - w / 2, y: y - 7, width: w, height: 14 }, g);
+        text(g, x, y + 0.5, label, note.tie ? 'tab-fret is-tied' : 'tab-fret');
+        if (note.tie) {
+          const previous = bar.events[i - 1];
+          const px = previous ? x0 + previous.x + NOTE_OFFSET : x0 + 2;
+          svg('path', { class: 'tab-tie', d: `M ${px + 5} ${y - 8} Q ${(px + x) / 2} ${y - 16} ${x - 8} ${y - 8}` }, g);
+        }
+      }
+      // Rhythm: stems for notes (none for whole notes), shorter for halves.
+      if (event.notes.length && event.duration.value > 1) {
+        const top = event.duration.value === 2 ? stemEnd - 11 : stemTop;
+        svg('line', { class: 'tab-stem', x1: x, x2: x, y1: top, y2: stemEnd }, g);
+      }
+      // Dots sit beside the stem end for notes, beside the rest mark for rests.
+      const dotY = event.notes.length ? stemEnd - 3 : (system.staffTop + system.staffBottom) / 2 - 3;
+      for (let d = 0; d < event.duration.dots; d++) {
+        svg('circle', { class: 'tab-dot', cx: x + 7 + d * 4, cy: dotY, r: 1.6 }, g);
+      }
+    });
+    drawBeams(g, bar, x0, stemEnd);
+  }
+
+  /** Move the playhead without re-rendering. */
+  updatePlayback(ui: UiState): void {
+    const playhead = this.playhead;
+    if (!playhead) return;
+    const tick = ui.playbackTick;
+    if (tick === null) {
+      playhead.setAttribute('width', '0');
+      return;
+    }
+    for (const system of this.systems) {
+      const bar = system.box.bars.find(b => tick >= b.bar.startTick && tick < b.bar.startTick + b.bar.lengthTicks);
+      if (!bar) continue;
+      const event = bar.events.find(e => tick >= e.startTick && tick < e.endTick);
+      const x0 = LABEL_W + bar.x;
+      const [x, w] = event ? [x0 + event.x, event.width] : [x0 + tickX(bar, tick), 4];
+      playhead.setAttribute('x', String(x));
+      playhead.setAttribute('width', String(w));
+      playhead.setAttribute('y', String(system.staffTop - 9));
+      playhead.setAttribute('height', String(system.staffBottom - system.staffTop + 18));
+      return;
+    }
+    playhead.setAttribute('width', '0');
+  }
+
+  private handlePointer(event: PointerEvent): void {
+    if (event.button > 0) return;
+    const rect = this.root.getBoundingClientRect();
+    const x = event.clientX - rect.left - LABEL_W;
+    const y = event.clientY - rect.top;
+    const system = this.systems.find(s => y >= s.top && y < s.bottom + SYSTEM_GAP / 2);
+    const bar = system?.box.bars.find(b => x >= b.x && x < b.x + b.width);
+    if (!bar) return;
+    const local = x - bar.x;
+    let index = bar.events.findIndex(e => local < e.x + e.width);
+    if (index === -1) index = bar.events.length;
+    event.preventDefault();
+    this.callbacks.onCursor(bar.index, index);
+  }
 }
 
-export function renderTab(ui: UiState, container: HTMLElement): void {
-  const { song } = ui.doc;
-  const strings = stringsOf(mainTrack(song).tuning);
-  const { layout, defs } = displayBars(ui);
-  const placed = placeEvents(song, layout);
-  const starts = new Map(placed.map(p => [p.startTick, p]));
-  const position = cursorPosition(ui.doc);
-  const cursorTick = position.ended ? null : position.tick;
-  const columns: Column[] = [];
+/** X (relative to the bar) of a tick: inside an event's column, or within the free space. */
+function tickX(bar: BarBox, tick: number): number {
+  const event = bar.events.find(e => tick >= e.startTick && tick < e.endTick);
+  if (event) return event.x + (event.width * (tick - event.startTick)) / (event.endTick - event.startTick);
+  if (bar.append) {
+    const end = bar.bar.startTick + bar.bar.lengthTicks;
+    const span = end - bar.append.startTick;
+    return bar.append.x + (span > 0 ? bar.append.width * (tick - bar.append.startTick) / span : 0);
+  }
+  return bar.contentX;
+}
 
-  container.replaceChildren();
-  for (let offset = 0; offset < layout.length; offset += ui.view.barsPerRow) {
-    const rowBars = layout.slice(offset, offset + ui.view.barsPerRow);
-    const first = rowBars[0];
-    const lastBar = rowBars[rowBars.length - 1];
-    if (!first || !lastBar) continue;
-    const rowStart = first.startTick;
-    const rowEnd = lastBar.startTick + lastBar.lengthTicks;
+/** Number of beams (or flags) for a note value: 1 for eighths, 2 for sixteenths… */
+function beamCount(event: TabEvent): number {
+  return Math.max(0, Math.log2(event.duration.value) - 2);
+}
 
-    let unit = MAX_COLUMN_TICKS;
-    for (const bar of rowBars) unit = gcd(unit, gcd(bar.pulseTicks, bar.lengthTicks));
-    for (const p of placed) {
-      if (p.startTick >= rowStart && p.startTick < rowEnd) unit = gcd(unit, gcd(p.startTick - rowStart, p.endTick - p.startTick));
+/** Beam eighths and shorter within each beat; single short notes get flags. */
+function drawBeams(g: SVGGElement, bar: BarBox, x0: number, stemEnd: number): void {
+  const groups: EventBox[][] = [];
+  let group: EventBox[] = [];
+  let groupPulse = -1;
+  const flush = (): void => {
+    if (group.length) groups.push(group);
+    group = [];
+  };
+  for (const box of bar.events) {
+    const pulse = Math.floor((box.startTick - bar.bar.startTick) / bar.bar.pulseTicks);
+    const beamable = box.event.notes.length > 0 && beamCount(box.event) > 0;
+    if (!beamable || pulse !== groupPulse) flush();
+    groupPulse = pulse;
+    if (beamable) group.push(box);
+  }
+  flush();
+
+  for (const beamGroup of groups) {
+    const xs = beamGroup.map(b => x0 + b.x + NOTE_OFFSET);
+    const first = xs[0] ?? 0;
+    const lastX = xs[xs.length - 1] ?? first;
+    if (beamGroup.length === 1) {
+      const count = beamCount(beamGroup[0]!.event);
+      for (let level = 0; level < count; level++) {
+        const y = stemEnd - level * BEAM_GAP;
+        svg('path', { class: 'tab-flag', d: `M ${first} ${y} l 7 -6` }, g);
+      }
+      continue;
     }
-    if (cursorTick !== null && cursorTick >= rowStart && cursorTick < rowEnd) unit = gcd(unit, cursorTick - rowStart);
-
-    const system = document.createElement('section');
-    system.className = 'tab-system';
-    const grid = document.createElement('div');
-    grid.className = 'tab-grid';
-    grid.style.setProperty('--slot-count', String((rowEnd - rowStart) / unit));
-    grid.append(createLabel(''));
-    for (const bar of rowBars) grid.append(createBarLabel(bar, defs[bar.index], unit));
-
-    const rowColumns: Column[] = [];
-    grid.append(createLabel(''));
-    for (const bar of rowBars) {
-      for (let tick = bar.startTick; tick < bar.startTick + bar.lengthTicks; tick += unit) {
-        const column: Column = { start: tick, end: tick + unit, cells: [] };
-        rowColumns.push(column);
-        grid.append(createBeatCell(bar, tick, unit));
+    svg('line', { class: 'tab-beam', x1: first, x2: lastX, y1: stemEnd, y2: stemEnd }, g);
+    // Secondary beams: join neighbours that both need them; otherwise a short stub.
+    const counts = beamGroup.map(b => beamCount(b.event));
+    for (let level = 2; level <= Math.max(...counts); level++) {
+      const y = stemEnd - (level - 1) * BEAM_GAP;
+      for (let i = 0; i < beamGroup.length; i++) {
+        if ((counts[i] ?? 0) < level) continue;
+        const x = xs[i] ?? 0;
+        const next = xs[i + 1];
+        if (next !== undefined && (counts[i + 1] ?? 0) >= level) {
+          svg('line', { class: 'tab-beam', x1: x, x2: next, y1: y, y2: y }, g);
+        } else if (i === 0 || (counts[i - 1] ?? 0) < level) {
+          const stub = next !== undefined ? 6 : -6;
+          svg('line', { class: 'tab-beam', x1: x, x2: x + stub, y1: y, y2: y }, g);
+        }
       }
     }
-    for (const string of [...strings].reverse()) {
-      grid.append(createLabel(string.label));
-      rowBars.forEach(bar => {
-        for (const column of rowColumns) {
-          if (column.start < bar.startTick || column.start >= bar.startTick + bar.lengthTicks) continue;
-          const cell = createStringCell(bar, column, unit, string, starts.get(column.start));
-          if (column.start === cursorTick && ui.playbackTick === null) cell.classList.add('is-edit-cursor');
-          if (ui.playbackTick !== null && ui.playbackTick >= column.start && ui.playbackTick < column.end)
-            cell.classList.add('is-playhead');
-          column.cells.push(cell);
-          grid.append(cell);
-        }
-      });
+    const tuplet = beamGroup[0]?.event.duration.tuplet;
+    if (tuplet && beamGroup.every(b => b.event.duration.tuplet?.actual === tuplet.actual)) {
+      text(g, (first + lastX) / 2, stemEnd + 11, String(tuplet.actual), 'tab-tuplet');
     }
-    columns.push(...rowColumns);
-    system.append(grid);
-    container.append(system);
   }
-  columnIndex.set(container, columns);
 }
 
-function createLabel(text: string): HTMLDivElement {
-  const label = document.createElement('div');
-  label.className = 'tab-grid-label';
-  label.textContent = text;
-  return label;
-}
-
-function tempoText(bar: BarLayout): string {
-  const unit = bar.tempo.unit === 4 ? 'Quarter' : `1/${bar.tempo.unit}`;
-  return `${unit}${bar.tempo.dotted ? ' dotted' : ''} = ${bar.tempo.bpm}`;
-}
-
-function createBarLabel(bar: BarLayout, def: BarDef | undefined, unit: number): HTMLDivElement {
-  const label = document.createElement('div');
-  label.className = 'tab-bar-label';
-  const chords = (def?.chords ?? []).map(change => chordSymbol(change.chord)).join(' ');
-  label.textContent = `Bar ${bar.index + 1} · ${bar.numerator}/${bar.denominator}${chords ? ` · ${chords}` : ''}`;
-  label.style.gridColumn = `span ${bar.lengthTicks / unit}`;
-  label.title = tempoText(bar);
-  return label;
-}
-
-function applyBoundaryClasses(bar: BarLayout, cell: HTMLElement, tick: number, unit: number): void {
-  const local = tick - bar.startTick;
-  if (local === 0) cell.classList.add('is-bar-start');
-  if (local + unit === bar.lengthTicks) cell.classList.add('is-bar-end');
-  else if ((local + unit) % bar.pulseTicks === 0) cell.classList.add('is-beat-end');
-}
-
-function createBeatCell(bar: BarLayout, tick: number, unit: number): HTMLDivElement {
-  const cell = document.createElement('div');
-  cell.className = 'tab-grid-header-cell';
-  applyBoundaryClasses(bar, cell, tick, unit);
-
-  const local = tick - bar.startTick;
-  const pulse = Math.floor(local / bar.pulseTicks);
-  const offset = local % bar.pulseTicks;
-  if (offset === 0) {
-    const accent = bar.accents[pulse] ?? 0;
-    cell.textContent = String(pulse + 1);
-    cell.classList.add(`accent-${accent}`);
-    cell.title = `Pulse ${pulse + 1}: ${['weak', 'medium', 'strong'][accent]}`;
-  } else {
-    cell.textContent = subdivisionLabel(offset, bar.pulseTicks);
-  }
-  return cell;
-}
-
-function createStringCell(
-  bar: BarLayout,
-  column: Column,
-  unit: number,
-  string: StringInfo,
-  placed: PlacedEvent | undefined
-): HTMLDivElement {
-  const cell = document.createElement('div');
-  cell.className = 'tab-cell';
-  cell.dataset.tick = String(column.start);
-  cell.dataset.string = String(string.number);
-  applyBoundaryClasses(bar, cell, column.start, unit);
-
-  const event: TabEvent | undefined = placed?.event;
-  const note = event?.notes.find(item => item.string === string.number);
-  if (note) {
-    cell.classList.add('has-note');
-    const fretNumber = document.createElement('span');
-    fretNumber.className = 'tab-fret-number';
-    fretNumber.textContent = note.tie ? `(${note.fret})` : String(note.fret);
-    cell.title = `String ${string.number}, fret ${note.fret}${note.tie ? ' (tied)' : ''}`;
-    cell.append(fretNumber);
-  } else if (event && event.notes.length === 0) {
-    cell.title = 'Rest';
-  }
-  return cell;
-}
-
-/** Move the cursor/playhead highlight without rebuilding the grid. */
-export function updateTabPlayback(ui: UiState, container: HTMLElement): void {
-  container.querySelectorAll('.is-playhead, .is-edit-cursor').forEach(cell => {
-    cell.classList.remove('is-playhead', 'is-edit-cursor');
-  });
-  const columns = columnIndex.get(container) ?? [];
-  if (ui.playbackTick !== null) {
-    const tick = ui.playbackTick;
-    columns.find(c => tick >= c.start && tick < c.end)?.cells.forEach(cell => cell.classList.add('is-playhead'));
+/** Simple rest marks on the middle of the staff. */
+function drawRest(g: SVGGElement, x: number, y: number, value: number): void {
+  if (value <= 2) {
+    // Whole rests hang below a line, half rests sit on it.
+    svg('rect', { class: 'tab-rest', x: x - 5, y: value === 1 ? y - 6 : y - 2, width: 10, height: 4 }, g);
     return;
   }
-  const position = cursorPosition(ui.doc);
-  if (position.ended) return;
-  columns.find(c => c.start === position.tick)?.cells.forEach(cell => cell.classList.add('is-edit-cursor'));
+  if (value === 4) {
+    svg('path', { class: 'tab-rest-line', d: `M ${x - 2} ${y - 9} l 4 5 l -4 4 l 4 5 q -5 -2 -3 3` }, g);
+    return;
+  }
+  const flags = Math.log2(value) - 2;
+  svg('path', { class: 'tab-rest-line', d: `M ${x + 3} ${y - 6} L ${x - 1} ${y + 8}` }, g);
+  for (let i = 0; i < flags; i++) {
+    const fy = y - 6 + i * 5;
+    svg('circle', { class: 'tab-rest', cx: x - 2 + i * -0.8, cy: fy, r: 1.8 }, g);
+    svg('path', { class: 'tab-rest-line', d: `M ${x - 2 + i * -0.8} ${fy} q 3 1.5 5 0` }, g);
+  }
 }

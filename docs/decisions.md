@@ -80,3 +80,13 @@ family look: warm grey, extruded controls, pressed-in wells; Outfit + Work Sans,
 Mono for tab digits) around a realistic SVG rosewood fretboard with nickel frets, pearl
 inlays and wound strings that you click directly. Light, dark and system themes.
 Fretboard stays above the tab.
+
+## 2026-10-19 — Editing model (Phase 3b)
+Close to Guitar Pro. The cursor is either on an event or at a bar's free space.
+On an event: a fretboard click replaces its notes (keeping its duration) and moves on;
+Rest turns it into a rest; a duration chip changes its duration if the bar has room;
+Delete removes it. At free space: clicks append. Shift+click adds a note to the current
+chord (the event under the cursor, or the one just entered). Backspace removes the event
+before the cursor; Insert adds a rest before it. Cursor moves are not undo steps
+(`History.amend`), but undo restores the cursor that went with each edit.
+Tab layout is width-driven: bars wrap to the window, "bars per row" is a maximum.

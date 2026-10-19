@@ -36,6 +36,17 @@ export class History<T> {
     return result;
   }
 
+  /**
+   * Change the present state without creating an undo step (e.g. moving the cursor).
+   * Undo still returns to the state as it was before the last recorded edit.
+   */
+  amend(edit: (draft: T) => void): void {
+    const draft = structuredClone(this.current);
+    edit(draft);
+    this.check(draft);
+    this.current = draft;
+  }
+
   undo(): boolean {
     const previous = this.past.pop();
     if (previous === undefined) return false;

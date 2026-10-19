@@ -11,27 +11,36 @@ import {
   requireTuningPreset,
   tuningsFor
 } from './model/instruments';
-import { pitchClassName, pitchClassOf } from './model/pitch';
+import { midiToNoteName, noteMidi, pitchClassName, pitchClassOf } from './model/pitch';
 import type { RemapReport } from './model/remap';
 import { SCALES, TONICS } from './model/scales';
 import { durationCode, durationName, parseDurationCode, type Duration } from './model/time';
 import {
+  addNoteToChord,
   clearNotes,
+  currentEvent,
   cursorPosition,
+  deleteAtCursor,
+  deleteBeforeCursor,
+  eventAtCursor,
   hasTempoChanges,
   insertEvent,
+  moveCursor,
   replaceTimeline,
   resetToFreeTimeline,
+  setCursor,
+  setDurationAtCursor,
   setInstrument,
   setSongKey,
-  setTempoBpm
+  setTempoBpm,
+  writeAtCursor
 } from './model/editing';
 import { subdivisionLabel } from './model/timeline';
 import { eventAtTick, placeEvents, type PlacedEvent } from './model/schedule';
 import { importMetronomo } from './io/metronomoComposto';
 import { defaultViewPrefs, type LoadedProject } from './io/projectFormat';
 import { FretboardView } from './ui/fretboard';
-import { renderTab, updateTabPlayback } from './ui/tabEditor';
+import { TabView } from './ui/tabEditor';
 import { setupProjectFiles } from './ui/projectFiles';
 import { setupMenu } from './ui/menu';
 import { setupTheme } from './ui/theme';
@@ -62,7 +71,6 @@ const history = new History<EditorDoc>(
 const ui: UiState = {
   get doc() { return history.present; },
   view: defaultViewPrefs(),
-  selectedNote: null,
   playbackTick: null,
   activeNotes: []
 };
@@ -108,6 +116,13 @@ let isPlaying = false;
 let lastPlayedEvent: PlacedEvent | undefined;
 
 const fretboard = new FretboardView(elements.fretboard, handleFretboardNoteClick);
+const tabView = new TabView(elements.tabEditor, {
+  onCursor: (bar, index) => {
+    if (isPlaying) return;
+    history.amend(doc => setCursor(doc, bar, index));
+    renderApp();
+  }
+});
 
 function init(): void {
   populateControls();
@@ -127,7 +142,6 @@ function init(): void {
   elements.fretCountSelect.addEventListener('change', () => {
     if (isPlaying) return;
     ui.view.fretCount = Number(elements.fretCountSelect.value);
-    ui.selectedNote = null;
     renderApp();
   });
 
@@ -145,10 +159,13 @@ function init(): void {
   elements.durationChips.addEventListener('click', event => {
     const chip = (event.target as Element).closest<HTMLButtonElement>('.chip');
     if (!chip || chip.disabled) return;
-    ui.view.duration = parseDurationCode(chip.value);
-    markDurationChips();
+    const duration = parseDurationCode(chip.value);
+    ui.view.duration = duration;
+    // On an existing note or rest, the chip changes that event's duration too.
+    if (eventAtCursor(history.present) && !isPlaying) edit(doc => setDurationAtCursor(doc, duration));
+    renderApp();
   });
-  elements.restButton.addEventListener('click', () => insert([]));
+  elements.restButton.addEventListener('click', () => write([], false));
   elements.undoButton.addEventListener('click', handleUndo);
   elements.redoButton.addEventListener('click', handleRedo);
   elements.clearButton.addEventListener('click', handleClear);
@@ -236,7 +253,8 @@ function syncControlsFromState(): void {
 }
 
 function markDurationChips(): void {
-  const current = durationCode(ui.view.duration);
+  // Show the duration of the event under the cursor, or the one the next note will get.
+  const current = durationCode(eventAtCursor(history.present)?.duration ?? ui.view.duration);
   for (const chip of elements.durationChips.querySelectorAll<HTMLButtonElement>('.chip')) {
     chip.setAttribute('aria-checked', String(chip.value === current));
   }
@@ -244,9 +262,10 @@ function markDurationChips(): void {
 
 function renderApp(): void {
   renderFretboardOnly();
-  renderTab(ui, elements.tabEditor);
+  tabView.render(ui);
   renderSelectedNote();
   renderCursorPosition();
+  markDurationChips();
   updateControls();
 }
 
@@ -267,20 +286,22 @@ function edit(change: (doc: EditorDoc) => void): boolean {
 
 /** After undo/redo/load, the controls must reflect the restored document. */
 function afterDocumentReplaced(): void {
-  ui.selectedNote = null;
   syncControlsFromState();
   renderApp();
 }
 
-function insert(notes: Note[]): void {
+/** Write notes (or a rest) at the cursor, or add one note to the current chord. */
+function write(notes: Note[], chord: boolean): void {
   if (isPlaying) return;
-  if (edit(doc => insertEvent(doc, notes, ui.view.duration))) {
-    elements.playbackStatus.textContent = 'Ready';
-    renderApp();
-  }
+  const note = notes[0];
+  const ok = chord && note
+    ? edit(doc => addNoteToChord(doc, note))
+    : edit(doc => writeAtCursor(doc, notes, ui.view.duration));
+  if (ok) elements.playbackStatus.textContent = 'Ready';
+  renderApp();
 }
 
-function handleFretboardNoteClick(note: FretboardNote): void {
+function handleFretboardNoteClick(note: FretboardNote, options: { chord: boolean }): void {
   if (isPlaying) return;
 
   // Start the preview directly from the user's click.
@@ -288,8 +309,7 @@ function handleFretboardNoteClick(note: FretboardNote): void {
     console.error('Could not play note preview:', error);
   });
 
-  ui.selectedNote = note;
-  insert([{ string: note.string, fret: note.fret }]);
+  write([{ string: note.string, fret: note.fret }], options.chord);
 }
 
 /** Open-string names, lowest first: "D A D G B E". */
@@ -349,7 +369,6 @@ async function changeInstrument(instrumentId: string, notes: readonly number[]):
   let report: RemapReport | undefined;
   const chosen = mode;
   if (edit(doc => { report = setInstrument(doc, instrumentId, notes, chosen); }) && report) {
-    ui.selectedNote = null;
     elements.playbackStatus.textContent = describeRemap(report);
   }
   syncControlsFromState();
@@ -384,13 +403,17 @@ function handleClear(): void {
 }
 
 function handleShortcut(event: KeyboardEvent): void {
-  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
   // A modal dialog is waiting for an answer; editing underneath it would invalidate that answer.
   if (document.querySelector('dialog[open]')) return;
   const target = event.target as HTMLElement | null;
-  // Leave undo inside text fields to the browser.
-  if (target && (target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' &&
-    ['text', 'number', 'search'].includes((target as HTMLInputElement).type)))) return;
+  // Leave keys inside text fields and lists to the browser.
+  if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || (target.tagName === 'INPUT' &&
+    ['text', 'number', 'search', 'range'].includes((target as HTMLInputElement).type)))) return;
+  if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+    handleEditingKey(event);
+    return;
+  }
+  if (event.altKey) return;
   const key = event.key.toLowerCase();
   if (key === 'z' && !event.shiftKey) {
     event.preventDefault();
@@ -399,6 +422,28 @@ function handleShortcut(event: KeyboardEvent): void {
     event.preventDefault();
     handleRedo();
   }
+}
+
+/** Cursor and editing keys: arrows move, Delete/Backspace remove, Insert adds a rest before the cursor. */
+function handleEditingKey(event: KeyboardEvent): void {
+  if (isPlaying) return;
+  let change: ((doc: EditorDoc) => void) | null = null;
+  let recorded = true;
+  switch (event.key) {
+    case 'ArrowRight': change = doc => moveCursor(doc, 1); recorded = false; break;
+    case 'ArrowLeft': change = doc => moveCursor(doc, -1); recorded = false; break;
+    case 'Delete': change = deleteAtCursor; break;
+    case 'Backspace': change = deleteBeforeCursor; break;
+    case 'Insert': change = doc => insertEvent(doc, [], ui.view.duration); break;
+    default: return;
+  }
+  event.preventDefault();
+  if (recorded) {
+    if (edit(change)) elements.playbackStatus.textContent = 'Ready';
+  } else {
+    history.amend(change);
+  }
+  renderApp();
 }
 
 function handleProjectLoaded(project: LoadedProject): void {
@@ -475,15 +520,22 @@ function commitTempo(): void {
   }
 }
 
+/** Describe the event being worked on under the fretboard. */
 function renderSelectedNote(): void {
-  if (!ui.selectedNote) {
-    elements.selectedNote.textContent = 'Click a string to write a note.';
+  const event = currentEvent(history.present);
+  const label = eventAtCursor(history.present) ? 'At cursor' : 'Last entered';
+  if (!event) {
+    elements.selectedNote.textContent = 'Click a string to write a note. Shift+click adds notes to a chord.';
     return;
   }
-  const { string, fret, noteName } = ui.selectedNote;
+  const track = mainTrack(history.present.song);
   const name = document.createElement('b');
-  name.textContent = noteName;
-  elements.selectedNote.replaceChildren(name, ` — string ${string}, fret ${fret}`);
+  name.textContent = event.notes.length
+    ? event.notes.map(n => midiToNoteName(noteMidi(track, n))).join(' + ')
+    : 'Rest';
+  const where = event.notes.map(n => `string ${n.string} fret ${n.fret}`).join(', ');
+  elements.selectedNote.replaceChildren(`${label}: `, name,
+    ` — ${durationName(event.duration).toLowerCase()}${where ? ` · ${where}` : ''}`);
 }
 
 function renderCursorPosition(): void {
@@ -507,7 +559,7 @@ function gcd(a: number, b: number): number {
 }
 
 function renderPlaybackVisuals(): void {
-  updateTabPlayback(ui, elements.tabEditor);
+  tabView.updatePlayback(ui);
   fretboard.update(ui);
 }
 
@@ -553,7 +605,7 @@ function updateScaleControlAvailability(): void {
 function changeBarsPerRow(change: number): void {
   if (isPlaying) return;
   ui.view.barsPerRow = Math.min(8, Math.max(1, ui.view.barsPerRow + change));
-  renderTab(ui, elements.tabEditor);
+  tabView.render(ui);
   updateBarDensityControls();
 }
 
@@ -571,8 +623,7 @@ async function handleRhythmImport(): Promise<void> {
     const chart = importMetronomo(JSON.parse(await file.text()));
     if (isPlaying) throw new Error('Stop playback before importing.');
     if (edit(doc => replaceTimeline(doc, chart.timeline, chart.tempo))) {
-      ui.selectedNote = null;
-      syncControlsFromState();
+        syncControlsFromState();
       elements.playbackStatus.textContent = 'Rhythm imported. Press Play to hear it; Undo restores the previous chart.';
       renderApp();
     }
@@ -586,7 +637,6 @@ async function handleRhythmImport(): Promise<void> {
 function handleRhythmReset(): void {
   if (isPlaying) return;
   if (edit(resetToFreeTimeline)) {
-    ui.selectedNote = null;
     syncControlsFromState();
     elements.playbackStatus.textContent = 'Free chart. Undo restores the previous chart and notes.';
     renderApp();
