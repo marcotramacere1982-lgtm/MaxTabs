@@ -545,6 +545,11 @@ input:disabled {
   gap: 8px;
 }
 
+.chip-wide {
+  font-family: var(--ui);
+  font-weight: 600;
+}
+
 .chip[aria-pressed="true"] {
   color: var(--accent-ink);
   box-shadow: var(--sh-in-sm);
@@ -627,6 +632,23 @@ input:disabled {
   stroke-width: 2;
   stroke-dasharray: 3 2.5;
   pointer-events: none;
+}
+
+.fb-selected.is-ring {
+  stroke-dasharray: none;
+  stroke-width: 2.5;
+}
+
+.fb-dead {
+  fill: var(--select-ring);
+  font: 800 15px var(--ui);
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
+.fb-mute:hover {
+  fill: rgba(217, 139, 111, .18);
 }
 
 .fb-tone {
@@ -779,8 +801,19 @@ input:disabled {
   dominant-baseline: central;
 }
 
+.tab-fret.is-dead {
+  font-weight: 800;
+}
+
 .tab-fret.is-tied {
   fill: var(--muted);
+}
+
+.tab-ring {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 3;
+  opacity: .8;
 }
 
 .tab-tie {

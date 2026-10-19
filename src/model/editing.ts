@@ -301,9 +301,60 @@ export function addNoteToChord(doc: EditorDoc, note: Note): void {
   const position = eventAtCursor(doc) ? doc.cursor : previousEventPosition(doc);
   const event = position && track.bars[position.bar]?.events[position.index];
   if (!event) throw new Error('Write a note first, then Shift+click to add chord notes to it.');
-  event.notes = [...event.notes.filter(n => n.string !== note.string), { ...note }]
-    .sort((a, b) => a.string - b.string);
+  toggleChordNote(event, note);
   repairTies(track, barLengths(doc.song));
+}
+
+function sameNote(a: Note, b: Note): boolean {
+  return a.string === b.string && a.fret === b.fret && Boolean(a.dead) === Boolean(b.dead);
+}
+
+/** Add a note to a chord, replacing any note on its string; the same note again removes it. */
+function toggleChordNote(event: TabEvent, note: Note): void {
+  const existing = event.notes.find(n => n.string === note.string);
+  const others = event.notes.filter(n => n.string !== note.string);
+  event.notes = (existing && sameNote(existing, note) ? others : [...others, { ...note }])
+    .sort((a, b) => a.string - b.string);
+}
+
+/**
+ * Chord mode: build a chord on the event under the cursor, keeping the cursor on it.
+ * At a free position the first note starts a new event of `duration`.
+ */
+export function chordNoteAtCursor(doc: EditorDoc, note: Note, duration: Duration): void {
+  const track = mainTrack(doc.song);
+  if (openStringMidi(track, note.string) === undefined)
+    throw new Error(`String ${note.string} does not exist on this instrument.`);
+  const event = eventAtCursor(doc);
+  if (event) {
+    toggleChordNote(event, note);
+    repairTies(track, barLengths(doc.song));
+    return;
+  }
+  const { bar, index } = doc.cursor;
+  insertEvent(doc, [note], duration);
+  // Stay on the new event so the next clicks add to it.
+  doc.cursor = { bar, index };
+}
+
+export type Technique = 'dead' | 'letRing';
+
+/**
+ * Switch a technique on or off for every note of the current event (the one under the
+ * cursor, or the one just entered). Muting a note removes its tie.
+ */
+export function setTechniqueOnCurrent(doc: EditorDoc, technique: Technique, on: boolean): void {
+  const event = currentEvent(doc);
+  if (!event || event.notes.length === 0) throw new Error('Put the cursor on a note first.');
+  for (const note of event.notes) {
+    if (on) note[technique] = true;
+    else delete note[technique];
+    if (note.dead) {
+      delete note.letRing;
+      delete note.tie;
+    }
+  }
+  repairTies(mainTrack(doc.song), barLengths(doc.song));
 }
 
 /** Delete the event under the cursor (Delete key). Later events in the bar move up. */

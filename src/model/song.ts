@@ -70,6 +70,10 @@ export interface Note {
   fret: number;
   /** Continues the same string and fret from the immediately preceding event. */
   tie?: boolean;
+  /** Muted ("dead") note: a percussive hit written as "x". The fret is kept but not sounded. */
+  dead?: boolean;
+  /** Keeps ringing past its own duration, until the same string is played again. */
+  letRing?: boolean;
 }
 
 /** A rhythmic event; no notes means a rest. */

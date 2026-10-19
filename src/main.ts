@@ -40,11 +40,14 @@ import {
   removeKeyChangeAtCursor,
   setChordAtCursor,
   setKeyAtCursor,
-  toggleTie
+  toggleTie,
+  chordNoteAtCursor,
+  setTechniqueOnCurrent,
+  type Technique
 } from './model/editing';
 import { CHORD_QUALITIES, chordSymbol } from './model/harmony';
 import { subdivisionLabel } from './model/timeline';
-import { eventAtTick, placeEvents, type PlacedEvent } from './model/schedule';
+import { noteSpans, soundingAt, type NoteSpan } from './model/schedule';
 import { importMetronomo } from './io/metronomoComposto';
 import { defaultViewPrefs, type LoadedProject, type OverlayMode } from './io/projectFormat';
 import { FretboardView, harmonyAtCursor } from './ui/fretboard';
@@ -109,6 +112,9 @@ const elements = {
   tripletToggle: byId<HTMLButtonElement>('triplet-toggle'),
   restButton: byId<HTMLButtonElement>('rest-button'),
   tieButton: byId<HTMLButtonElement>('tie-button'),
+  chordToggle: byId<HTMLButtonElement>('chord-toggle'),
+  muteToggle: byId<HTMLButtonElement>('mute-toggle'),
+  ringToggle: byId<HTMLButtonElement>('ring-toggle'),
   cursorDisplay: byId('cursor-display'),
   cursorPrev: byId<HTMLButtonElement>('cursor-prev'),
   cursorNext: byId<HTMLButtonElement>('cursor-next'),
@@ -129,8 +135,11 @@ const elements = {
 };
 
 let isPlaying = false;
-/** The event whose notes were last plucked on the fretboard during playback. */
-let lastPlayedEvent: PlacedEvent | undefined;
+/** Note spans of the song being played, and the playhead tick last shown. */
+let playSpans: NoteSpan[] = [];
+let lastPlayTick = -1;
+/** Entry modes (this session only): build chords in place, enter muted or let-ring notes. */
+const entry = { chord: false, dead: false, letRing: false };
 
 const fretboard = new FretboardView(elements.fretboard, handleFretboardNoteClick);
 const tabView = new TabView(elements.tabEditor, {
@@ -196,6 +205,15 @@ function init(): void {
   }));
   elements.restButton.addEventListener('click', () => write([], false));
   elements.tieButton.addEventListener('click', handleTie);
+  elements.chordToggle.addEventListener('click', () => {
+    entry.chord = !entry.chord;
+    elements.playbackStatus.textContent = entry.chord
+      ? 'Chord mode: click strings to build a chord at the cursor (click a note again to remove it). → or Enter moves on.'
+      : 'Ready';
+    renderApp();
+  });
+  elements.muteToggle.addEventListener('click', () => toggleTechnique('dead'));
+  elements.ringToggle.addEventListener('click', () => toggleTechnique('letRing'));
   elements.cursorPrev.addEventListener('click', () => runEditingKey('ArrowLeft'));
   elements.cursorNext.addEventListener('click', () => runEditingKey('ArrowRight'));
   elements.deleteButton.addEventListener('click', () => runEditingKey('Delete'));
@@ -326,6 +344,7 @@ function renderApp(): void {
   renderSelectedNote();
   renderCursorPosition();
   markDurationChips();
+  markTechniqueToggles();
   renderHarmonyControls();
   updateControls();
 }
@@ -388,22 +407,60 @@ function afterDocumentReplaced(): void {
 function write(notes: Note[], chord: boolean): void {
   if (isPlaying) return;
   const note = notes[0];
-  const ok = chord && note
-    ? edit(doc => addNoteToChord(doc, note))
-    : edit(doc => writeAtCursor(doc, notes, ui.view.duration));
+  const ok = entry.chord && note
+    ? edit(doc => chordNoteAtCursor(doc, note, ui.view.duration))
+    : chord && note
+      ? edit(doc => addNoteToChord(doc, note))
+      : edit(doc => writeAtCursor(doc, notes, ui.view.duration));
   if (ok) elements.playbackStatus.textContent = 'Ready';
   renderApp();
 }
 
-function handleFretboardNoteClick(note: FretboardNote, options: { chord: boolean }): void {
+function handleFretboardNoteClick(note: FretboardNote, options: { chord: boolean; mute: boolean }): void {
   if (isPlaying) return;
+  const dead = options.mute || entry.dead;
 
   // Start the preview directly from the user's click.
-  playPreviewNote(note.midi).catch((error: unknown) => {
+  playPreviewNote(note.midi, dead).catch((error: unknown) => {
     console.error('Could not play note preview:', error);
   });
 
-  write([{ string: note.string, fret: note.fret }], options.chord);
+  const written: Note = { string: note.string, fret: note.fret };
+  if (dead) written.dead = true;
+  else if (entry.letRing) written.letRing = true;
+  write([written], options.chord);
+}
+
+/**
+ * Mute / Let ring: on a note, switch it for that note (and for what you enter next);
+ * elsewhere, just switch the mode for the notes you enter next.
+ */
+function toggleTechnique(technique: Technique): void {
+  if (isPlaying) return;
+  const event = eventAtCursor(history.present);
+  const onNote = Boolean(event && event.notes.length);
+  const on = onNote ? !hasTechnique(event!.notes, technique) : !entry[technique];
+  if (onNote) edit(doc => setTechniqueOnCurrent(doc, technique, on));
+  entry[technique] = on;
+  // A note is either muted or ringing.
+  if (on) entry[technique === 'dead' ? 'letRing' : 'dead'] = false;
+  renderApp();
+}
+
+/** Whether a chord uses a technique: all its notes muted, or all its sounding notes ringing. */
+function hasTechnique(notes: readonly Note[], technique: Technique): boolean {
+  const relevant = technique === 'letRing' ? notes.filter(n => !n.dead) : notes;
+  return relevant.length > 0 && relevant.every(n => n[technique]);
+}
+
+function markTechniqueToggles(): void {
+  const event = eventAtCursor(history.present);
+  const shown = (technique: Technique): boolean => event && event.notes.length
+    ? hasTechnique(event.notes, technique)
+    : entry[technique];
+  elements.chordToggle.setAttribute('aria-pressed', String(entry.chord));
+  elements.muteToggle.setAttribute('aria-pressed', String(shown('dead')));
+  elements.ringToggle.setAttribute('aria-pressed', String(shown('letRing')));
 }
 
 /** Open-string names, lowest first: "D A D G B E". */
@@ -548,6 +605,8 @@ function handleShortcut(event: KeyboardEvent): void {
 
 /** Cursor and editing keys: arrows move, Delete/Backspace remove, Insert adds a rest before the cursor. */
 function handleEditingKey(event: KeyboardEvent): void {
+  // Enter on a focused button or menu presses that control instead.
+  if (event.key === 'Enter' && (event.target as Element | null)?.closest('button, summary, a, label')) return;
   if (runEditingKey(event.key)) event.preventDefault();
 }
 
@@ -557,7 +616,8 @@ function runEditingKey(key: string): boolean {
   let change: ((doc: EditorDoc) => void) | null = null;
   let recorded = true;
   switch (key) {
-    case 'ArrowRight': change = doc => moveCursor(doc, 1); recorded = false; break;
+    case 'ArrowRight':
+    case 'Enter': change = doc => moveCursor(doc, 1); recorded = false; break;
     case 'ArrowLeft': change = doc => moveCursor(doc, -1); recorded = false; break;
     case 'Delete': change = deleteAtCursor; break;
     case 'Backspace': change = deleteBeforeCursor; break;
@@ -592,6 +652,8 @@ async function handlePlay(): Promise<void> {
   elements.playbackStatus.textContent = `Playing at ${history.present.song.tempo.bpm} BPM…`;
   updateControls();
 
+  playSpans = noteSpans(history.present.song);
+  lastPlayTick = -1;
   try {
     const started = await playSong(history.present.song, {
       metronome: ui.view.metronomeEnabled,
@@ -610,13 +672,15 @@ async function handlePlay(): Promise<void> {
 
 function handlePlaybackPositionChange(tick: number | null): void {
   ui.playbackTick = tick;
-  const placed = tick === null ? undefined : eventAtTick(placeEvents(history.present.song), tick);
-  ui.activeNotes = placed ? placed.event.notes : [];
-  // Pluck each event once, as it starts; tied notes keep ringing without a new pluck.
-  if (placed && placed.startTick !== lastPlayedEvent?.startTick) {
-    for (const note of placed.event.notes) if (!note.tie) fretboard.pluck(note);
+  // Light every string that is sounding, including let-ring notes from earlier.
+  ui.activeNotes = tick === null ? [] : soundingAt(playSpans, tick).filter(s => !s.dead);
+  // Pluck each note once, in the frame where it starts.
+  if (tick !== null) {
+    for (const span of playSpans) {
+      if (span.startTick > lastPlayTick && span.startTick <= tick) fretboard.pluck(span);
+    }
+    lastPlayTick = tick;
   }
-  lastPlayedEvent = placed;
   renderPlaybackVisuals();
 }
 
@@ -629,7 +693,7 @@ function handleStop(): void {
 function handlePlaybackComplete(): void {
   ui.playbackTick = null;
   ui.activeNotes = [];
-  lastPlayedEvent = undefined;
+  lastPlayTick = -1;
   isPlaying = false;
   elements.playbackStatus.textContent = 'Ready';
   renderPlaybackVisuals();
@@ -658,9 +722,11 @@ function renderSelectedNote(): void {
   const track = mainTrack(history.present.song);
   const name = document.createElement('b');
   name.textContent = event.notes.length
-    ? event.notes.map(n => midiToNoteName(noteMidi(track, n))).join(' + ')
+    ? event.notes.map(n => (n.dead ? 'x' : midiToNoteName(noteMidi(track, n)))).join(' + ')
     : 'Rest';
-  const where = event.notes.map(n => `string ${n.string} fret ${n.fret}`).join(', ');
+  const where = event.notes
+    .map(n => `string ${n.string} ${n.dead ? 'muted' : `fret ${n.fret}`}${n.letRing ? ' (let ring)' : ''}`)
+    .join(', ');
   elements.selectedNote.replaceChildren(`${label}: `, name,
     ` — ${durationName(event.duration).toLowerCase()}${where ? ` · ${where}` : ''}`);
 }
@@ -699,6 +765,9 @@ function updateControls(): void {
   elements.clearButton.disabled = !notes || isPlaying;
   elements.restButton.disabled = isPlaying;
   elements.tieButton.disabled = isPlaying;
+  elements.chordToggle.disabled = isPlaying;
+  elements.muteToggle.disabled = isPlaying;
+  elements.ringToggle.disabled = isPlaying;
   elements.dotToggle.disabled = isPlaying;
   elements.tripletToggle.disabled = isPlaying;
   elements.cursorPrev.disabled = isPlaying;

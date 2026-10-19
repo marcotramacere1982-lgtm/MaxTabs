@@ -35,6 +35,13 @@ Browser behaviour that unit tests cannot cover. Run with `npm run dev`.
 - [ ] Tie: on a note it toggles the tie to the same fret before it; at the end it holds the last note.
 - [ ] Phone: transport stays docked at the bottom; ‹ › ⌫ buttons move and delete.
 
+## Chords, muted notes, let ring
+- [ ] Chord mode: clicks build one chord at the cursor; clicking a note again removes it; Enter or → moves on.
+- [ ] Clicking a string's name on the fretboard adds a muted "x" on that string.
+- [ ] Let ring: a held chord keeps sounding (and stays lit) while melody notes play on other strings;
+      striking one of its strings again cuts that string. Dashed lines in the tab show how long it rings.
+- [ ] Muted notes sound as a short hit and print as "x".
+
 ## Undo / redo
 - [ ] Undo/Redo buttons and Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z work; Ctrl+Z in the title field edits text.
 - [ ] Instrument change with a different string count clears notes; Undo brings them back.

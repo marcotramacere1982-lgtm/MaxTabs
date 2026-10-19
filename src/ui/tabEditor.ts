@@ -7,8 +7,10 @@ import { getScale } from '../model/scales';
 import { layoutBarDefs, type BarLayout } from '../model/timeline';
 import { cursorPosition } from '../model/editing';
 import { chordSymbol } from '../model/harmony';
+import { noteSpans, type NoteSpan } from '../model/schedule';
 import { layoutTab, TIME_SIGNATURE_WIDTH, type BarBox, type EventBox, type SystemBox } from './tabLayout';
 import type { UiState } from './uiState';
+import { releaseControlFocus } from './dom';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const LABEL_W = 50;
@@ -159,8 +161,30 @@ export class TabView {
       }
     });
 
+    this.drawLetRing(noteSpans(song).filter(span => span.letRing), strings.length);
     this.playhead = svg('rect', { class: 'tab-playhead', x: -100, y: 0, width: 0, height: 0, rx: 6 }, root);
     this.updatePlayback(ui);
+  }
+
+  /** Dashed lines along the string for as long as each let-ring note keeps sounding. */
+  private drawLetRing(spans: NoteSpan[], stringCount: number): void {
+    const layer = svg('g', {}, this.root);
+    for (const span of spans) {
+      for (const system of this.systems) {
+        const first = system.box.bars[0];
+        const last = system.box.bars[system.box.bars.length - 1];
+        if (!first || !last) continue;
+        const systemStart = first.bar.startTick;
+        const systemEnd = last.bar.startTick + last.bar.lengthTicks;
+        if (span.endTick <= systemStart || span.startTick >= systemEnd) continue;
+        const startsHere = span.startTick >= systemStart;
+        const x1 = startsHere ? systemX(system.box, span.startTick) + NOTE_OFFSET + 8 : LABEL_W + first.x;
+        const x2 = span.endTick <= systemEnd ? systemX(system.box, span.endTick) + 2 : LABEL_W + last.x + last.width;
+        if (x2 - x1 < 3) continue;
+        const y = system.staffBottom - (stringCount - span.string) * STRING_GAP;
+        svg('line', { class: 'tab-ring', x1, x2, y1: y, y2: y }, layer);
+      }
+    }
   }
 
   private drawTimeSignature(g: SVGGElement, x: number, system: PlacedSystem, bar: BarLayout): void {
@@ -183,10 +207,10 @@ export class TabView {
       }
       for (const note of event.notes) {
         const y = lineY(note.string);
-        const label = note.tie ? `(${note.fret})` : String(note.fret);
+        const label = note.dead ? 'x' : note.tie ? `(${note.fret})` : String(note.fret);
         const w = label.length * 7.6 + 4;
         svg('rect', { class: 'tab-knockout', x: x - w / 2, y: y - 7, width: w, height: 14 }, g);
-        text(g, x, y + 0.5, label, note.tie ? 'tab-fret is-tied' : 'tab-fret');
+        text(g, x, y + 0.5, label, note.tie ? 'tab-fret is-tied' : note.dead ? 'tab-fret is-dead' : 'tab-fret');
         if (note.tie) {
           const previous = bar.events[i - 1];
           const px = previous ? x0 + previous.x + NOTE_OFFSET : x0 + 2;
@@ -243,8 +267,20 @@ export class TabView {
     let index = bar.events.findIndex(e => local < e.x + e.width);
     if (index === -1) index = bar.events.length;
     event.preventDefault();
+    releaseControlFocus();
     this.callbacks.onCursor(bar.index, index);
   }
+}
+
+/** Absolute x of a tick within a system (bar ends map to the bar's right edge). */
+function systemX(system: SystemBox, tick: number): number {
+  for (const bar of system.bars) {
+    const end = bar.bar.startTick + bar.bar.lengthTicks;
+    if (tick >= bar.bar.startTick && tick < end) return LABEL_W + bar.x + tickX(bar, tick);
+    if (tick === end) return LABEL_W + bar.x + bar.width;
+  }
+  const last = system.bars[system.bars.length - 1];
+  return last ? LABEL_W + last.x + last.width : LABEL_W;
 }
 
 /** X (relative to the bar) of a tick: inside an event's column, or within the free space. */

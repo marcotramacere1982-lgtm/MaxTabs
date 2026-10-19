@@ -1,9 +1,10 @@
-// Turns a song into timed sound events: notes (with ties merged) and metronome clicks.
+// How the song sounds: note spans (ties merged, let-ring extended, muted notes kept short)
+// and the timed sounds for playback, including metronome clicks.
 
-import { layoutBars, tickToSeconds, type BarLayout } from './timeline';
+import { endTick, layoutBars, tickToSeconds, type BarLayout } from './timeline';
 import { eventTicks } from './editing';
 import { noteMidi } from './pitch';
-import type { Accent, Note, Song, TabEvent } from './song';
+import type { Accent, Song, TabEvent } from './song';
 
 export interface ScheduledNote {
   kind: 'note';
@@ -12,6 +13,8 @@ export interface ScheduledNote {
   duration: number;
   midi: number;
   string: number;
+  /** A muted, percussive note. */
+  dead?: boolean;
 }
 
 export interface ScheduledClick {
@@ -51,48 +54,96 @@ export function eventAtTick(placed: readonly PlacedEvent[], tick: number): Place
   return placed.find(p => tick >= p.startTick && tick < p.endTick);
 }
 
+/** One sounded note, from attack to release, in ticks. */
+export interface NoteSpan {
+  string: number;
+  fret: number;
+  midi: number;
+  startTick: number;
+  endTick: number;
+  dead: boolean;
+  letRing: boolean;
+}
+
+/**
+ * When each string sounds. A tie extends the note before it; a let-ring note keeps sounding
+ * (through rests too) until its string is played again or the song ends; a muted note is a
+ * short hit. Playing a string always stops what was ringing on it.
+ */
+export function noteSpans(song: Song, layout: BarLayout[] = layoutBars(song)): NoteSpan[] {
+  const track = song.tracks[0];
+  if (!track) return [];
+  const spans: NoteSpan[] = [];
+  const open = new Map<number, NoteSpan>();
+  const close = (string: number, at?: number): void => {
+    const span = open.get(string);
+    if (!span) return;
+    // A let-ring note sounds until something replaces it.
+    if (span.letRing && at !== undefined) span.endTick = Math.max(span.endTick, at);
+    spans.push(span);
+    open.delete(string);
+  };
+
+  for (const placed of placeEvents(song, layout)) {
+    const struck = new Set<number>();
+    for (const note of placed.event.notes) {
+      struck.add(note.string);
+      const ringing = open.get(note.string);
+      if (note.tie && ringing && !ringing.dead && ringing.fret === note.fret && ringing.endTick >= placed.startTick) {
+        ringing.endTick = Math.max(ringing.endTick, placed.endTick);
+        ringing.letRing = ringing.letRing || Boolean(note.letRing);
+        continue;
+      }
+      close(note.string, placed.startTick);
+      open.set(note.string, {
+        string: note.string,
+        fret: note.fret,
+        midi: noteMidi(track, note),
+        startTick: placed.startTick,
+        endTick: placed.endTick,
+        dead: Boolean(note.dead),
+        letRing: Boolean(note.letRing) && !note.dead
+      });
+    }
+    // Strings not played now: ordinary notes have ended; let-ring notes carry on.
+    for (const [string, span] of [...open]) {
+      if (!struck.has(string) && !span.letRing) close(string);
+    }
+  }
+  const songEnd = endTick(layout);
+  for (const string of [...open.keys()]) close(string, songEnd);
+  return spans.sort((a, b) => a.startTick - b.startTick || b.string - a.string);
+}
+
+/** Notes sounding at a tick (attacked earlier and not yet released). */
+export function soundingAt(spans: readonly NoteSpan[], tick: number): NoteSpan[] {
+  return spans.filter(s => tick >= s.startTick && tick < s.endTick);
+}
+
 export interface Schedule {
   layout: BarLayout[];
+  spans: NoteSpan[];
   sounds: ScheduledSound[];
   /** Length of the song in seconds. */
   endSeconds: number;
 }
 
+/** Muted notes are a short percussive hit regardless of their written length. */
+const DEAD_NOTE_SECONDS = 0.05;
+
 export function buildSchedule(song: Song, options: { metronome: boolean }): Schedule {
   const layout = layoutBars(song);
-  const sounds: ScheduledSound[] = [];
-  const track = song.tracks[0];
-
-  if (track) {
-    // Notes still ringing, by string: a tie extends one instead of starting a new note.
-    const open = new Map<number, { note: Note; start: number; end: number }>();
-    const close = (string: number): void => {
-      const ringing = open.get(string);
-      if (!ringing) return;
-      const time = tickToSeconds(layout, ringing.start);
-      sounds.push({
-        kind: 'note', time, duration: tickToSeconds(layout, ringing.end) - time,
-        midi: noteMidi(track, ringing.note), string
-      });
-      open.delete(string);
+  const spans = noteSpans(song, layout);
+  const sounds: ScheduledSound[] = spans.map(span => {
+    const time = tickToSeconds(layout, span.startTick);
+    const duration = tickToSeconds(layout, span.endTick) - time;
+    const note: ScheduledNote = {
+      kind: 'note', time, duration: span.dead ? Math.min(duration, DEAD_NOTE_SECONDS) : duration,
+      midi: span.midi, string: span.string
     };
-
-    for (const placed of placeEvents(song, layout)) {
-      const sounding = new Set<number>();
-      for (const note of placed.event.notes) {
-        sounding.add(note.string);
-        const ringing = open.get(note.string);
-        if (note.tie && ringing && ringing.note.fret === note.fret && ringing.end === placed.startTick) {
-          ringing.end = placed.endTick;
-          continue;
-        }
-        close(note.string);
-        open.set(note.string, { note, start: placed.startTick, end: placed.endTick });
-      }
-      for (const string of [...open.keys()]) if (!sounding.has(string)) close(string);
-    }
-    for (const string of [...open.keys()]) close(string);
-  }
+    if (span.dead) note.dead = true;
+    return note;
+  });
 
   if (options.metronome) {
     for (const bar of layout) {
@@ -104,5 +155,5 @@ export function buildSchedule(song: Song, options: { metronome: boolean }): Sche
   }
 
   sounds.sort((a, b) => a.time - b.time);
-  return { layout, sounds, endSeconds: layout[layout.length - 1]?.endSeconds ?? 0 };
+  return { layout, spans, sounds, endSeconds: layout[layout.length - 1]?.endSeconds ?? 0 };
 }

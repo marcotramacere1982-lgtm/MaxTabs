@@ -3,12 +3,13 @@
 // playback highlights and pluck animations live on a separate layer so they never restart it.
 
 import { getScale } from '../model/scales';
-import { mainTrack } from '../model/song';
+import { mainTrack, type Note } from '../model/song';
 import { midiToNoteName, pitchClassOf, stringsOf, type StringInfo } from '../model/pitch';
 import { chordPitchClasses, harmonyAt, intervalLabel, type Harmony } from '../model/harmony';
 import { currentEvent, cursorPosition } from '../model/editing';
 import type { FretPosition, FretboardNote, UiState } from './uiState';
 import type { OverlayMode } from '../io/projectFormat';
+import { releaseControlFocus } from './dom';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const WIDTH = 1200;
@@ -64,7 +65,7 @@ export class FretboardView {
   private readonly root: SVGSVGElement;
 
   constructor(container: HTMLElement,
-    private readonly onNote: (note: FretboardNote, options: { chord: boolean }) => void) {
+    private readonly onNote: (note: FretboardNote, options: { chord: boolean; mute: boolean }) => void) {
     this.root = svg('svg', { role: 'presentation' });
     container.replaceChildren(this.root);
     this.root.addEventListener('pointerdown', event => this.handlePointer(event));
@@ -91,8 +92,8 @@ export class FretboardView {
     restartAnimation(layout.flash, 'is-on');
   }
 
-  /** Ring the notes being edited and fill the ones sounding, without plucking. */
-  private updateDynamic(selected: readonly FretPosition[], active: readonly FretPosition[]): void {
+  /** Ring the notes being edited (✕ for muted ones) and fill the ones sounding, without plucking. */
+  private updateDynamic(selected: readonly Note[], active: readonly FretPosition[]): void {
     const layout = this.layout;
     if (!layout) return;
     layout.dynamic.replaceChildren();
@@ -102,7 +103,13 @@ export class FretboardView {
     }
     for (const note of selected) {
       const row = layout.rows.find(r => r.number === note.string);
-      if (row) svg('circle', { class: 'fb-selected', cx: this.noteX(note.fret), cy: row.y, r: 13 }, layout.dynamic);
+      if (!row) continue;
+      const x = this.noteX(note.fret);
+      if (note.dead) {
+        svg('text', { class: 'fb-dead', x, y: row.y + 0.5 }, layout.dynamic).textContent = '✕';
+      } else {
+        svg('circle', { class: note.letRing ? 'fb-selected is-ring' : 'fb-selected', cx: x, cy: row.y, r: 13 }, layout.dynamic);
+      }
     }
   }
 
@@ -123,10 +130,12 @@ export class FretboardView {
     const row = this.layout?.rows.find(r => r.number === Number(hit?.dataset.string));
     if (!hit || !row || event.button > 0) return;
     event.preventDefault();
+    releaseControlFocus();
+    const mute = hit.dataset.mute === 'true';
     const fret = Number(hit.dataset.fret);
     const midi = row.midi + fret;
     this.pluck({ string: row.number, fret });
-    this.onNote({ string: row.number, fret, midi, noteName: midiToNoteName(midi) }, { chord: event.shiftKey });
+    this.onNote({ string: row.number, fret, midi, noteName: midiToNoteName(midi) }, { chord: event.shiftKey, mute });
   }
 
   private build(tuning: number[], fretCount: number, harmony: Harmony | null, mode: OverlayMode,
@@ -215,6 +224,12 @@ export class FretboardView {
     // Hit areas: one per string per fret space, plus the open string left of the nut.
     const hits = svg('g', {}, root);
     for (const row of rows) {
+      // The string name mutes the string ("x").
+      const mute = svg('rect', {
+        class: 'fb-hit fb-mute', x: 0, y: row.y - gap / 2, width: LABEL_X + 12, height: gap,
+        'data-string': row.number, 'data-fret': 0, 'data-mute': 'true'
+      }, hits);
+      svg('title', {}, mute).textContent = `Mute string ${row.number} (x)`;
       for (let f = 0; f <= fretCount; f++) {
         const x0 = f === 0 ? LABEL_X + 12 : this.fretX(f - 1);
         const x1 = f === 0 ? NUT_X - 6 : this.fretX(f);

@@ -95,13 +95,16 @@ export function repairTies(track: Track, barLengths: readonly number[]): number 
     let tick = barStart;
     for (const event of bar.events) {
       for (const note of event.notes) {
-        if (note.tie && !(previous && previous.end === tick && previous.notes.get(note.string) === note.fret)) {
+        if (note.tie && note.dead) {
+          delete note.tie;
+          broken++;
+        } else if (note.tie && !(previous && previous.end === tick && previous.notes.get(note.string) === note.fret)) {
           delete note.tie;
           broken++;
         }
       }
       tick += eventTicks(event);
-      previous = { end: tick, notes: new Map(event.notes.map(n => [n.string, n.fret])) };
+      previous = { end: tick, notes: new Map(event.notes.filter(n => !n.dead).map(n => [n.string, n.fret])) };
     }
     // An underfull bar leaves a gap before the next bar, which breaks ties across it.
     barStart += barLengths[b] ?? 0;

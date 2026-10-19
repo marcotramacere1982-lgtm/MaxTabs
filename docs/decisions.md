@@ -101,3 +101,15 @@ Tab layout is width-driven: bars wrap to the window, "bars per row" is a maximum
   always computed at the cursor, so moving through the song moves the overlay.
 - Durations are a note value plus dotted and triplet toggles; any combination is allowed if
   it is a whole number of ticks.
+
+## 2026-10-19 — Chords, muted notes and let ring
+- Notes carry two optional flags: `dead` (muted "x", a short percussive hit; cannot be tied)
+  and `letRing` (keeps sounding past its event until the same string is played again,
+  through rests, or to the end of the song). Playing a string always stops what was ringing
+  on it, as on a real instrument.
+- One function, `noteSpans`, decides when each string sounds (ties merged, let ring extended).
+  Playback, the fretboard's sounding highlights and the tab's let-ring lines all use it.
+- Chord mode keeps the cursor on the event being built; Shift+click does the same outside
+  chord mode. Clicking an identical note again removes it from the chord.
+- Mute / Let ring toggles act on the note under the cursor when there is one, like the
+  duration chips; otherwise they set the mode for the next notes.

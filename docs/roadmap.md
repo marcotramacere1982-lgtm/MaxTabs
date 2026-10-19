@@ -47,8 +47,13 @@
 - [ ] Standard MIDI file with tempo map and time signatures
 - [ ] PDF via print layout
 
+## Chords and techniques (pulled forward, 2026-10-19)
+- [x] Chord mode: build a chord in place on any strings; click a note again to remove it
+- [x] Muted notes ("x"): toggle, or click a string's name on the fretboard
+- [x] Let ring: notes sound until their string is played again; shown as dashed lines in the tab
+- [ ] Chord shape library / voicing finder for the chord at the cursor
+
 ## Later
-- [ ] Chords and multi-note events
 - [ ] Techniques (hammer-on, pull-off, slide, bend, vibrato, palm mute)
 - [ ] Realistic guitar/bass sound
 - [ ] Tap tempo

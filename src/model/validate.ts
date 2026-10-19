@@ -134,7 +134,7 @@ export function validateSong(input: unknown): Song {
     check(Array.isArray(track.bars) && track.bars.length === bars.length, trackPath,
       'bar count does not match the timeline');
 
-    // The previous event, for checking ties: its end tick and the notes it sounds.
+    // The previous event, for checking ties: its end tick and the (sounding) notes it plays.
     let previous: { end: number; notes: Map<number, number> } | null = null;
     let barStart = 0;
     track.bars.forEach((bar: unknown, b: number) => {
@@ -153,11 +153,15 @@ export function validateSong(input: unknown): Song {
           check(isInt(note.fret, 0, LIMITS.frets), path, 'invalid fret');
           check(!notes.has(note.string), path, 'two notes on one string');
           check(note.tie === undefined || typeof note.tie === 'boolean', path, 'invalid tie');
+          check(note.dead === undefined || typeof note.dead === 'boolean', path, 'invalid muted flag');
+          check(note.letRing === undefined || typeof note.letRing === 'boolean', path, 'invalid let-ring flag');
+          check(!(note.tie && note.dead), path, 'a muted note cannot be tied');
           if (note.tie) {
             check(previous && previous.end === tick && previous.notes.get(note.string) === note.fret, path,
               'tied note must continue the same string and fret from the event just before it');
           }
-          notes.set(note.string, note.fret);
+          // Muted notes cannot be tied to, so they are left out.
+          if (!note.dead) notes.set(note.string, note.fret);
         }
         tick += ticks;
         previous = { end: tick, notes };

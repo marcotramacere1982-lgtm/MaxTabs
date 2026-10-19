@@ -46,10 +46,10 @@ function note(ctx: AudioContext, midi: number, when: number, duration: number): 
   register(source, gain);
 }
 
-export async function playPreviewNote(midi: number): Promise<void> {
+export async function playPreviewNote(midi: number, dead = false): Promise<void> {
   const ctx = await getContext();
   // Previews ring freely; they are not tracked, so Stop does not cut a note you just clicked.
-  playPluck(ctx, midi, ctx.currentTime + 0.01, 1.6);
+  playPluck(ctx, midi, ctx.currentTime + 0.01, dead ? 0.05 : 1.6);
 }
 
 export function stopPlayback(): void {
