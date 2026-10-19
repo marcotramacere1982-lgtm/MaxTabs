@@ -28,7 +28,7 @@ npm run dev        # dev server at http://localhost:5173
 | `src/` | TypeScript source; each module has one responsibility |
 | `src/importers/` | Importers for external formats (metronomo-composto rhythm charts) |
 | `src/styles/` | CSS |
-| `public/` | Static files copied as-is, including the companion `metronomo-composto.html` |
+| `public/` | Static files copied as-is |
 | `tests/unit/` | Vitest unit tests; `tests/fixtures/` holds sample files |
 | `tests/manual-test-checklist.md` | Browser checks that unit tests cannot cover |
 | `docs/` | Architecture, decisions, roadmap |

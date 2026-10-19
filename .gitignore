@@ -3,3 +3,6 @@ dist/
 .DS_Store
 Thumbs.db
 *.log
+
+# Companion metronome app: not part of this project (kept outside the repo)
+metronomo-composto.html
