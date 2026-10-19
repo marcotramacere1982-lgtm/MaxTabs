@@ -17,7 +17,7 @@ export interface RemapReport {
   moved: number;
   /** Notes with no playable position on the new tuning. */
   dropped: number;
-  /** Ties removed because the notes they joined no longer match. */
+  /** Ties, slurs and slides removed because the notes they joined no longer match. */
   tiesBroken: number;
 }
 
@@ -82,12 +82,15 @@ export function remapTrack(track: Track, newTuning: readonly number[], mode: Rem
   }
 
   track.tuning = [...newTuning];
-  report.tiesBroken = repairTies(track, barLengths);
+  report.tiesBroken = repairConnections(track, barLengths);
   return report;
 }
 
-/** Remove tie flags that no longer continue the same string and fret from the event just before. */
-export function repairTies(track: Track, barLengths: readonly number[]): number {
+/**
+ * Remove ties, slurs and slides that no longer connect to the right note in the event just
+ * before (after edits, deletions or remapping). Returns how many were removed.
+ */
+export function repairConnections(track: Track, barLengths: readonly number[]): number {
   let broken = 0;
   let previous: { end: number; notes: Map<number, number> } | null = null;
   let barStart = 0;
@@ -95,12 +98,21 @@ export function repairTies(track: Track, barLengths: readonly number[]): number 
     let tick = barStart;
     for (const event of bar.events) {
       for (const note of event.notes) {
-        if (note.tie && note.dead) {
-          delete note.tie;
-          broken++;
-        } else if (note.tie && !(previous && previous.end === tick && previous.notes.get(note.string) === note.fret)) {
-          delete note.tie;
-          broken++;
+        const before = previous && previous.end === tick ? previous.notes.get(note.string) : undefined;
+        const valid = {
+          tie: !note.dead && before === note.fret,
+          slur: !note.dead && before !== undefined && before !== note.fret,
+          slide: !note.dead && before !== undefined && before !== note.fret
+        };
+        for (const connection of ['tie', 'slur', 'slide'] as const) {
+          if (note[connection] && !valid[connection]) {
+            delete note[connection];
+            broken++;
+          }
+        }
+        if (note.dead) {
+          delete note.bend;
+          delete note.vibrato;
         }
       }
       tick += eventTicks(event);

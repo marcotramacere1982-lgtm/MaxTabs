@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { remapTrack, repairTies } from '../../src/model/remap';
+import { remapTrack, repairConnections } from '../../src/model/remap';
 import { createTrack, type Note, type Track } from '../../src/model/song';
 import { defaultTuning, requireTuningPreset } from '../../src/model/instruments';
 import { noteMidi } from '../../src/model/pitch';
@@ -91,7 +91,7 @@ describe('ties', () => {
 
   it('breaks ties across the gap left by an underfull bar', () => {
     const t = track([[[{ string: 3, fret: 2 }]], [[{ string: 3, fret: 2, tie: true }]]]);
-    expect(repairTies(t, [BAR, BAR])).toBe(1);
+    expect(repairConnections(t, [BAR, BAR])).toBe(1);
     expect(t.bars[1]?.events[0]?.notes[0]?.tie).toBeUndefined();
   });
 });

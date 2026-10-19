@@ -64,12 +64,29 @@ export interface Timeline {
   source?: { app: string; name: string };
 }
 
+/** A bend up by `semitones` (½ = 0.5, "full" = 1), optionally released back to the fretted pitch. */
+export interface Bend {
+  semitones: number;
+  release?: boolean;
+}
+
+export type Stroke = 'down' | 'up';
+
 export interface Note {
   /** 1 is the highest-pitched string. */
   string: number;
   fret: number;
   /** Continues the same string and fret from the immediately preceding event. */
   tie?: boolean;
+  /**
+   * Hammer-on or pull-off from the previous note on this string (a different fret, in the event
+   * just before). Written "h" when the fret goes up, "p" when it goes down.
+   */
+  slur?: boolean;
+  /** Slide from the previous note on this string (a different fret, in the event just before). */
+  slide?: boolean;
+  bend?: Bend;
+  vibrato?: boolean;
   /** Muted ("dead") note: a percussive hit written as "x". The fret is kept but not sounded. */
   dead?: boolean;
   /** Keeps ringing past its own duration, until the same string is played again. */
@@ -80,6 +97,16 @@ export interface Note {
 export interface TabEvent {
   duration: Duration;
   notes: Note[];
+  /** Strum direction for a chord: down plays the low strings first. */
+  stroke?: Stroke;
+}
+
+/** Ways a note can continue from the previous note on its string. */
+export const CONNECTIONS = ['tie', 'slur', 'slide'] as const;
+export type Connection = typeof CONNECTIONS[number];
+
+export function connectionOf(note: Note): Connection | undefined {
+  return CONNECTIONS.find(c => note[c]);
 }
 
 export interface TrackBar {

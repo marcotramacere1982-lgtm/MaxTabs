@@ -113,3 +113,18 @@ Tab layout is width-driven: bars wrap to the window, "bars per row" is a maximum
   chord mode. Clicking an identical note again removes it from the chord.
 - Mute / Let ring toggles act on the note under the cursor when there is one, like the
   duration chips; otherwise they set the mode for the next notes.
+
+## 2026-10-19 — Notation is data, edited in the tab
+Techniques are stored in the model, not as a visual layer: marks stay attached to their notes
+through edits, and playback and MIDI export can use them.
+- Note: `slur` (hammer-on/pull-off) and `slide` connect to the previous note on the same string,
+  like `tie`, and are mutually exclusive with it. h vs p and / vs \ are derived from the frets,
+  so the user never chooses them. Also `bend` { semitones, release? } and `vibrato`.
+- Event: `stroke` ('down' | 'up') for the whole chord; drawn with the standard pick-direction
+  signs (⊓ down, V up) to avoid the ambiguity of strum arrows in tab.
+- Entry lives in the tab: right-click / long-press menu, single-key shortcuts (Guitar Pro
+  style), and a Techniques… button. Clicking a fret number in a chord selects that note for
+  per-note marks. Mute, Let ring and Tie left the toolbar; Chord stays because it is an entry mode.
+- Playback: legato notes (h/p/slide arrival) get a soft, dark attack; slides glide over the end
+  of the first note; bends ramp the pitch up (and back for release); vibrato is a 5.5 Hz,
+  quarter-semitone wobble; strokes start each string 12 ms apart.

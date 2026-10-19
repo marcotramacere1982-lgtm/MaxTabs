@@ -16,6 +16,8 @@ export interface FretboardNote extends FretPosition {
 export interface UiState {
   doc: EditorDoc;
   view: ViewPrefs;
+  /** The string of the note selected within the chord at the cursor, if one is selected. */
+  selectedString: number | null;
   /** Absolute tick of the playhead, or null when stopped. */
   playbackTick: number | null;
   activeNotes: FretPosition[];

@@ -42,6 +42,13 @@ Browser behaviour that unit tests cannot cover. Run with `npm run dev`.
       striking one of its strings again cuts that string. Dashed lines in the tab show how long it rings.
 - [ ] Muted notes sound as a short hit and print as "x".
 
+## Techniques
+- [ ] Right-click (long-press on a phone) a note in the tab: menu shows what applies; ticks show what is set.
+- [ ] Keys: H hammer/pull, S slide, V vibrato, T tie, L let ring, X mute, B bend (cycles), D/U stroke.
+- [ ] h or p is chosen automatically from the fret direction; slides draw / or \.
+- [ ] Clicking one fret number in a chord selects that note; bends and vibrato then apply to it alone.
+- [ ] Playback: hammer-ons are softer, slides glide, bends rise (and release), vibrato wobbles, strums stagger.
+
 ## Undo / redo
 - [ ] Undo/Redo buttons and Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z work; Ctrl+Z in the title field edits text.
 - [ ] Instrument change with a different string count clears notes; Undo brings them back.

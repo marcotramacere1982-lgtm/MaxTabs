@@ -40,11 +40,14 @@ import {
   removeKeyChangeAtCursor,
   setChordAtCursor,
   setKeyAtCursor,
-  toggleTie,
   chordNoteAtCursor,
-  setTechniqueOnCurrent,
-  type Technique
+  markState,
+  setBend,
+  setStroke,
+  toggleMark,
+  type NoteMark
 } from './model/editing';
+import type { Stroke } from './model/song';
 import { CHORD_QUALITIES, chordSymbol } from './model/harmony';
 import { subdivisionLabel } from './model/timeline';
 import { noteSpans, soundingAt, type NoteSpan } from './model/schedule';
@@ -55,6 +58,7 @@ import { TabView } from './ui/tabEditor';
 import { setupProjectFiles } from './ui/projectFiles';
 import { setupMenu } from './ui/menu';
 import { setupTheme } from './ui/theme';
+import { BEND_STEPS, TechniqueMenu, type MenuAction } from './ui/techniqueMenu';
 import { askRemapMode } from './ui/remapDialog';
 import { byId } from './ui/dom';
 import type { FretboardNote, UiState } from './ui/uiState';
@@ -79,6 +83,7 @@ const history = new History<EditorDoc>(
 const ui: UiState = {
   get doc() { return history.present; },
   view: defaultViewPrefs(),
+  selectedString: null,
   playbackTick: null,
   activeNotes: []
 };
@@ -111,10 +116,8 @@ const elements = {
   dotToggle: byId<HTMLButtonElement>('dot-toggle'),
   tripletToggle: byId<HTMLButtonElement>('triplet-toggle'),
   restButton: byId<HTMLButtonElement>('rest-button'),
-  tieButton: byId<HTMLButtonElement>('tie-button'),
   chordToggle: byId<HTMLButtonElement>('chord-toggle'),
-  muteToggle: byId<HTMLButtonElement>('mute-toggle'),
-  ringToggle: byId<HTMLButtonElement>('ring-toggle'),
+  techniquesButton: byId<HTMLButtonElement>('techniques-button'),
   cursorDisplay: byId('cursor-display'),
   cursorPrev: byId<HTMLButtonElement>('cursor-prev'),
   cursorNext: byId<HTMLButtonElement>('cursor-next'),
@@ -138,17 +141,33 @@ let isPlaying = false;
 /** Note spans of the song being played, and the playhead tick last shown. */
 let playSpans: NoteSpan[] = [];
 let lastPlayTick = -1;
-/** Entry modes (this session only): build chords in place, enter muted or let-ring notes. */
-const entry = { chord: false, dead: false, letRing: false };
+/** Entry mode (this session only): build chords in place. */
+const entry = { chord: false };
 
 const fretboard = new FretboardView(elements.fretboard, handleFretboardNoteClick);
 const tabView = new TabView(elements.tabEditor, {
-  onCursor: (bar, index) => {
+  onCursor: (bar, index, string) => {
     if (isPlaying) return;
-    history.amend(doc => setCursor(doc, bar, index));
+    placeCursor(bar, index, string);
     renderApp();
+  },
+  onContextMenu: (bar, index, string, x, y) => {
+    if (isPlaying) return;
+    placeCursor(bar, index, string);
+    renderApp();
+    techniqueMenu.open(x, y, markState(history.present, ui.selectedString));
   }
 });
+const techniqueMenu = new TechniqueMenu(handleMenuAction);
+
+/** Move the cursor from a tab click, selecting the clicked note if it is part of a chord. */
+function placeCursor(bar: number, index: number, string: number | null): void {
+  history.amend(doc => setCursor(doc, bar, index));
+  const notes = eventAtCursor(history.present)?.notes ?? [];
+  ui.selectedString = string !== null && notes.length > 1 && notes.some(n => n.string === string) ? string : null;
+}
+
+
 
 function init(): void {
   populateControls();
@@ -204,7 +223,6 @@ function init(): void {
     return tuplet ? rest : { ...rest, tuplet: { ...TRIPLET } };
   }));
   elements.restButton.addEventListener('click', () => write([], false));
-  elements.tieButton.addEventListener('click', handleTie);
   elements.chordToggle.addEventListener('click', () => {
     entry.chord = !entry.chord;
     elements.playbackStatus.textContent = entry.chord
@@ -212,8 +230,11 @@ function init(): void {
       : 'Ready';
     renderApp();
   });
-  elements.muteToggle.addEventListener('click', () => toggleTechnique('dead'));
-  elements.ringToggle.addEventListener('click', () => toggleTechnique('letRing'));
+  elements.techniquesButton.addEventListener('click', () => {
+    if (isPlaying) return;
+    const box = elements.techniquesButton.getBoundingClientRect();
+    techniqueMenu.open(box.left, box.bottom + 6, markState(history.present, ui.selectedString));
+  });
   elements.cursorPrev.addEventListener('click', () => runEditingKey('ArrowLeft'));
   elements.cursorNext.addEventListener('click', () => runEditingKey('ArrowRight'));
   elements.deleteButton.addEventListener('click', () => runEditingKey('Delete'));
@@ -344,7 +365,8 @@ function renderApp(): void {
   renderSelectedNote();
   renderCursorPosition();
   markDurationChips();
-  markTechniqueToggles();
+  elements.chordToggle.setAttribute('aria-pressed', String(entry.chord));
+  techniqueMenu.update(markState(history.present, ui.selectedString));
   renderHarmonyControls();
   updateControls();
 }
@@ -399,6 +421,7 @@ function edit(change: (doc: EditorDoc) => void): boolean {
 
 /** After undo/redo/load, the controls must reflect the restored document. */
 function afterDocumentReplaced(): void {
+  ui.selectedString = null;
   syncControlsFromState();
   renderApp();
 }
@@ -406,6 +429,7 @@ function afterDocumentReplaced(): void {
 /** Write notes (or a rest) at the cursor, or add one note to the current chord. */
 function write(notes: Note[], chord: boolean): void {
   if (isPlaying) return;
+  ui.selectedString = null;
   const note = notes[0];
   const ok = entry.chord && note
     ? edit(doc => chordNoteAtCursor(doc, note, ui.view.duration))
@@ -418,7 +442,7 @@ function write(notes: Note[], chord: boolean): void {
 
 function handleFretboardNoteClick(note: FretboardNote, options: { chord: boolean; mute: boolean }): void {
   if (isPlaying) return;
-  const dead = options.mute || entry.dead;
+  const dead = options.mute;
 
   // Start the preview directly from the user's click.
   playPreviewNote(note.midi, dead).catch((error: unknown) => {
@@ -427,41 +451,9 @@ function handleFretboardNoteClick(note: FretboardNote, options: { chord: boolean
 
   const written: Note = { string: note.string, fret: note.fret };
   if (dead) written.dead = true;
-  else if (entry.letRing) written.letRing = true;
   write([written], options.chord);
 }
 
-/**
- * Mute / Let ring: on a note, switch it for that note (and for what you enter next);
- * elsewhere, just switch the mode for the notes you enter next.
- */
-function toggleTechnique(technique: Technique): void {
-  if (isPlaying) return;
-  const event = eventAtCursor(history.present);
-  const onNote = Boolean(event && event.notes.length);
-  const on = onNote ? !hasTechnique(event!.notes, technique) : !entry[technique];
-  if (onNote) edit(doc => setTechniqueOnCurrent(doc, technique, on));
-  entry[technique] = on;
-  // A note is either muted or ringing.
-  if (on) entry[technique === 'dead' ? 'letRing' : 'dead'] = false;
-  renderApp();
-}
-
-/** Whether a chord uses a technique: all its notes muted, or all its sounding notes ringing. */
-function hasTechnique(notes: readonly Note[], technique: Technique): boolean {
-  const relevant = technique === 'letRing' ? notes.filter(n => !n.dead) : notes;
-  return relevant.length > 0 && relevant.every(n => n[technique]);
-}
-
-function markTechniqueToggles(): void {
-  const event = eventAtCursor(history.present);
-  const shown = (technique: Technique): boolean => event && event.notes.length
-    ? hasTechnique(event.notes, technique)
-    : entry[technique];
-  elements.chordToggle.setAttribute('aria-pressed', String(entry.chord));
-  elements.muteToggle.setAttribute('aria-pressed', String(shown('dead')));
-  elements.ringToggle.setAttribute('aria-pressed', String(shown('letRing')));
-}
 
 /** Open-string names, lowest first: "D A D G B E". */
 function tuningNoteNames(notes: readonly number[]): string {
@@ -554,13 +546,68 @@ function handleChordChange(): void {
   renderApp();
 }
 
-function handleTie(): void {
+/** Apply a technique to the selected note, or to every note of the current beat. */
+function applyMark(mark: NoteMark): void {
   if (isPlaying) return;
-  const onEvent = Boolean(eventAtCursor(history.present));
-  if (edit(doc => (onEvent ? toggleTie(doc) : continueWithTie(doc, ui.view.duration)))) {
+  // Tie at the end of the music holds the last note for another duration.
+  if (mark === 'tie' && !eventAtCursor(history.present)) {
+    if (edit(doc => continueWithTie(doc, ui.view.duration))) elements.playbackStatus.textContent = 'Ready';
+  } else if (edit(doc => toggleMark(doc, mark, ui.selectedString))) {
     elements.playbackStatus.textContent = 'Ready';
   }
   renderApp();
+}
+
+/** B cycles the bend: none → ½ → full → 1½ → 2 → none. */
+function cycleBend(): void {
+  const current = markState(history.present, ui.selectedString).bend?.semitones;
+  const next = BEND_STEPS[(current === undefined ? -1 : BEND_STEPS.indexOf(current)) + 1];
+  applyBend(next ?? null);
+}
+
+function applyBend(semitones: number | null): void {
+  if (isPlaying) return;
+  const release = markState(history.present, ui.selectedString).bend?.release;
+  edit(doc => setBend(doc, semitones === null ? null : { semitones, ...(release ? { release } : {}) }, ui.selectedString));
+  renderApp();
+}
+
+function toggleRelease(): void {
+  const bend = markState(history.present, ui.selectedString).bend;
+  if (!bend || isPlaying) return;
+  edit(doc => setBend(doc, bend.release ? { semitones: bend.semitones } : { ...bend, release: true }, ui.selectedString));
+  renderApp();
+}
+
+/** D / U: set the stroke, or remove it when it is already that direction. */
+function applyStroke(stroke: Stroke): void {
+  if (isPlaying) return;
+  const current = markState(history.present).stroke;
+  edit(doc => setStroke(doc, current === stroke ? null : stroke));
+  renderApp();
+}
+
+function handleMenuAction(action: MenuAction): void {
+  switch (action.type) {
+    case 'mark': applyMark(action.mark); break;
+    case 'bend': applyBend(action.semitones); break;
+    case 'release': toggleRelease(); break;
+    case 'stroke': applyStroke(action.stroke); break;
+  }
+}
+
+/** Single-key technique shortcuts, as in Guitar Pro. */
+const MARK_KEYS: Record<string, NoteMark> = { h: 'slur', s: 'slide', v: 'vibrato', t: 'tie', l: 'letRing', x: 'dead' };
+
+function handleTechniqueKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  const mark = MARK_KEYS[lower];
+  if (mark) applyMark(mark);
+  else if (lower === 'b') cycleBend();
+  else if (lower === 'd') applyStroke('down');
+  else if (lower === 'u') applyStroke('up');
+  else return false;
+  return true;
 }
 
 function handleUndo(): void {
@@ -607,12 +654,17 @@ function handleShortcut(event: KeyboardEvent): void {
 function handleEditingKey(event: KeyboardEvent): void {
   // Enter on a focused button or menu presses that control instead.
   if (event.key === 'Enter' && (event.target as Element | null)?.closest('button, summary, a, label')) return;
+  if (event.key.length === 1 && !event.shiftKey && handleTechniqueKey(event.key)) {
+    event.preventDefault();
+    return;
+  }
   if (runEditingKey(event.key)) event.preventDefault();
 }
 
 /** Run an editing key's action; returns false for keys that are not editing keys. */
 function runEditingKey(key: string): boolean {
   if (isPlaying) return false;
+  ui.selectedString = null;
   let change: ((doc: EditorDoc) => void) | null = null;
   let recorded = true;
   switch (key) {
@@ -764,10 +816,9 @@ function updateControls(): void {
   elements.redoButton.disabled = !history.canRedo || isPlaying;
   elements.clearButton.disabled = !notes || isPlaying;
   elements.restButton.disabled = isPlaying;
-  elements.tieButton.disabled = isPlaying;
   elements.chordToggle.disabled = isPlaying;
-  elements.muteToggle.disabled = isPlaying;
-  elements.ringToggle.disabled = isPlaying;
+  elements.techniquesButton.disabled = isPlaying;
+  if (isPlaying) techniqueMenu.close();
   elements.dotToggle.disabled = isPlaying;
   elements.tripletToggle.disabled = isPlaying;
   elements.cursorPrev.disabled = isPlaying;

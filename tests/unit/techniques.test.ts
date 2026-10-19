@@ -4,7 +4,7 @@ import {
   chordNoteAtCursor,
   insertEvent,
   moveCursor,
-  setTechniqueOnCurrent,
+  setMark,
   toggleTie
 } from '../../src/model/editing';
 import { buildSchedule, noteSpans, soundingAt, type ScheduledNote } from '../../src/model/schedule';
@@ -89,7 +89,7 @@ describe('muted notes', () => {
     history.apply(doc => insertEvent(doc, [{ string: 3, fret: 2 }], d(4)));
     history.apply(doc => insertEvent(doc, [{ string: 3, fret: 2, letRing: true }], d(4)));
     history.apply(toggleTie);
-    history.apply(doc => setTechniqueOnCurrent(doc, 'dead', true));
+    history.apply(doc => setMark(doc, 'dead', true));
     expect(notesAt(history, 0, 1)).toEqual([{ string: 3, fret: 2, dead: true }]);
     const song = structuredClone(history.present.song);
     mainTrack(song).bars[0]!.events[1]!.notes[0]!.tie = true;
@@ -99,9 +99,9 @@ describe('muted notes', () => {
   it('switch let ring on and off for the whole current event', () => {
     const history = newHistory();
     history.apply(doc => insertEvent(doc, [{ string: 3, fret: 2 }, { string: 2, fret: 3 }], d(4)));
-    history.apply(doc => setTechniqueOnCurrent(doc, 'letRing', true));
+    history.apply(doc => setMark(doc, 'letRing', true));
     expect(notesAt(history, 0, 0)?.every(n => n.letRing)).toBe(true);
-    history.apply(doc => setTechniqueOnCurrent(doc, 'letRing', false));
+    history.apply(doc => setMark(doc, 'letRing', false));
     expect(notesAt(history, 0, 0)?.some(n => n.letRing)).toBe(false);
   });
 });

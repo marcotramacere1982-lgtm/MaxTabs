@@ -6,7 +6,9 @@ import { barLengthTicks, layoutBars, quarterBpm } from './timeline';
 import { openStringMidi } from './pitch';
 import {
   mainTrack,
+  type Bend,
   type BarDef,
+  type Stroke,
   type Chord,
   type EditorDoc,
   type Key,
@@ -18,7 +20,7 @@ import {
   type TrackBar
 } from './song';
 import { requireInstrumentType } from './instruments';
-import { remapTrack, repairTies, type RemapMode, type RemapReport } from './remap';
+import { remapTrack, repairConnections, type RemapMode, type RemapReport } from './remap';
 
 export function eventTicks(event: TabEvent): number {
   return durationTicks(event.duration);
@@ -286,7 +288,7 @@ export function writeAtCursor(doc: EditorDoc, notes: Note[], duration: Duration)
       throw new Error(`String ${note.string} does not exist on this instrument.`);
   }
   event.notes = notes.map(n => ({ ...n }));
-  repairTies(track, barLengths(doc.song));
+  repairConnections(track, barLengths(doc.song));
   moveCursor(doc, 1);
 }
 
@@ -302,7 +304,7 @@ export function addNoteToChord(doc: EditorDoc, note: Note): void {
   const event = position && track.bars[position.bar]?.events[position.index];
   if (!event) throw new Error('Write a note first, then Shift+click to add chord notes to it.');
   toggleChordNote(event, note);
-  repairTies(track, barLengths(doc.song));
+  repairConnections(track, barLengths(doc.song));
 }
 
 function sameNote(a: Note, b: Note): boolean {
@@ -328,7 +330,7 @@ export function chordNoteAtCursor(doc: EditorDoc, note: Note, duration: Duration
   const event = eventAtCursor(doc);
   if (event) {
     toggleChordNote(event, note);
-    repairTies(track, barLengths(doc.song));
+    repairConnections(track, barLengths(doc.song));
     return;
   }
   const { bar, index } = doc.cursor;
@@ -337,32 +339,13 @@ export function chordNoteAtCursor(doc: EditorDoc, note: Note, duration: Duration
   doc.cursor = { bar, index };
 }
 
-export type Technique = 'dead' | 'letRing';
-
-/**
- * Switch a technique on or off for every note of the current event (the one under the
- * cursor, or the one just entered). Muting a note removes its tie.
- */
-export function setTechniqueOnCurrent(doc: EditorDoc, technique: Technique, on: boolean): void {
-  const event = currentEvent(doc);
-  if (!event || event.notes.length === 0) throw new Error('Put the cursor on a note first.');
-  for (const note of event.notes) {
-    if (on) note[technique] = true;
-    else delete note[technique];
-    if (note.dead) {
-      delete note.letRing;
-      delete note.tie;
-    }
-  }
-  repairTies(mainTrack(doc.song), barLengths(doc.song));
-}
 
 /** Delete the event under the cursor (Delete key). Later events in the bar move up. */
 export function deleteAtCursor(doc: EditorDoc): void {
   const bar = mainTrack(doc.song).bars[doc.cursor.bar];
   if (!eventAtCursor(doc) || !bar) throw new Error('Nothing to delete at the cursor.');
   bar.events.splice(doc.cursor.index, 1);
-  repairTies(mainTrack(doc.song), barLengths(doc.song));
+  repairConnections(mainTrack(doc.song), barLengths(doc.song));
 }
 
 /** Delete the event before the cursor (Backspace) and move the cursor back. */
@@ -371,7 +354,7 @@ export function deleteBeforeCursor(doc: EditorDoc): void {
   if (!position) throw new Error('Nothing to delete before the cursor.');
   mainTrack(doc.song).bars[position.bar]?.events.splice(position.index, 1);
   doc.cursor = position;
-  repairTies(mainTrack(doc.song), barLengths(doc.song));
+  repairConnections(mainTrack(doc.song), barLengths(doc.song));
 }
 
 /** Change the duration of the event under the cursor, if the bar has room. */
@@ -383,7 +366,7 @@ export function setDurationAtCursor(doc: EditorDoc, duration: Duration): void {
   const fill = barFillTicks(bar) - eventTicks(event) + durationTicks(duration);
   if (fill > barLengthTicks(def.time)) throw new Error('Not enough room in this bar for that duration.');
   event.duration = { ...duration };
-  repairTies(mainTrack(doc.song), barLengths(doc.song));
+  repairConnections(mainTrack(doc.song), barLengths(doc.song));
 }
 
 function barLengths(song: Song): number[] {
@@ -413,23 +396,6 @@ function eventAt(doc: EditorDoc, position: { bar: number; index: number } | unde
   return position && mainTrack(doc.song).bars[position.bar]?.events[position.index];
 }
 
-/**
- * Tie (or untie) the current event's notes to the same string and fret in the event just before it.
- * The current event is the one under the cursor, or the one just entered.
- */
-export function toggleTie(doc: EditorDoc): void {
-  const position = eventAtCursor(doc) ? doc.cursor : previousEventPosition(doc);
-  const event = eventAt(doc, position);
-  if (!position || !event) throw new Error('Put the cursor on a note to tie it.');
-  const previous = eventAt(doc, adjacentPrevious(doc, position));
-  const tieable = event.notes.filter(n => previous?.notes.some(p => p.string === n.string && p.fret === n.fret));
-  if (!tieable.length) throw new Error('A tie joins a note to the same string and fret right before it.');
-  const untie = tieable.every(n => n.tie);
-  for (const note of tieable) {
-    if (untie) delete note.tie;
-    else note.tie = true;
-  }
-}
 
 /** Hold the notes just entered for another `duration`: append a tied copy of them at the cursor. */
 export function continueWithTie(doc: EditorDoc, duration: Duration): void {
@@ -490,4 +456,145 @@ export function chordAtCursor(doc: EditorDoc): Chord | undefined {
   const position = cursorPosition(doc);
   if (position.ended) return undefined;
   return doc.song.timeline.bars[position.bar]?.chords?.find(c => c.tick === position.tickInBar)?.chord;
+}
+
+// ---------- Notation marks (techniques) ----------
+
+/** Per-note marks that can be switched on and off. */
+export type NoteMark = 'tie' | 'slur' | 'slide' | 'vibrato' | 'letRing' | 'dead';
+const CONNECTION_MARKS = ['tie', 'slur', 'slide'] as const;
+
+interface MarkTarget {
+  position: { bar: number; index: number };
+  event: TabEvent;
+  /** The selected note when a string is given and has a note, otherwise every note of the event. */
+  notes: Note[];
+}
+
+/** What marks apply to: the event under the cursor (or the one just entered), or one note of it. */
+export function markTarget(doc: EditorDoc, string?: number | null): MarkTarget | undefined {
+  const position = eventAtCursor(doc) ? doc.cursor : previousEventPosition(doc);
+  const event = eventAt(doc, position);
+  if (!position || !event) return undefined;
+  const selected = string == null ? undefined : event.notes.find(n => n.string === string);
+  return { position, event, notes: selected ? [selected] : event.notes };
+}
+
+/** The sounding note on a string in the event right before a position, if it ends there. */
+function noteBefore(doc: EditorDoc, position: { bar: number; index: number }, string: number): Note | undefined {
+  const previous = eventAt(doc, adjacentPrevious(doc, position));
+  return previous?.notes.find(n => n.string === string && !n.dead);
+}
+
+/** The notes of a target that a mark can go on. */
+function applicable(doc: EditorDoc, target: MarkTarget, mark: NoteMark): Note[] {
+  const before = (note: Note) => noteBefore(doc, target.position, note.string);
+  switch (mark) {
+    case 'tie': return target.notes.filter(n => !n.dead && before(n)?.fret === n.fret);
+    case 'slur':
+    case 'slide': return target.notes.filter(n => {
+      const previous = before(n);
+      return !n.dead && previous !== undefined && previous.fret !== n.fret;
+    });
+    case 'vibrato':
+    case 'letRing': return target.notes.filter(n => !n.dead);
+    case 'dead': return target.notes;
+  }
+}
+
+export interface MarkState {
+  /** Whether the mark can be used here. */
+  available: Record<NoteMark, boolean>;
+  /** Whether every note it applies to already has it. */
+  on: Record<NoteMark, boolean>;
+  bend: Bend | undefined;
+  stroke: Stroke | undefined;
+  /** False at a rest or before any note. */
+  hasNotes: boolean;
+  /** True when the target is a single selected note of a chord. */
+  singleNote: boolean;
+}
+
+const MARKS: readonly NoteMark[] = ['tie', 'slur', 'slide', 'vibrato', 'letRing', 'dead'];
+
+export function markState(doc: EditorDoc, string?: number | null): MarkState {
+  const target = markTarget(doc, string);
+  const available = {} as Record<NoteMark, boolean>;
+  const on = {} as Record<NoteMark, boolean>;
+  for (const mark of MARKS) {
+    const notes = target ? applicable(doc, target, mark) : [];
+    available[mark] = notes.length > 0;
+    on[mark] = notes.length > 0 && notes.every(n => n[mark]);
+  }
+  const bent = target?.notes.find(n => n.bend);
+  return {
+    available, on,
+    bend: bent?.bend,
+    stroke: target?.event.stroke,
+    hasNotes: Boolean(target && target.event.notes.length),
+    singleNote: Boolean(target && target.notes.length === 1 && target.event.notes.length > 1)
+  };
+}
+
+const MARK_HELP: Record<NoteMark, string> = {
+  tie: 'A tie joins a note to the same string and fret right before it.',
+  slur: 'A hammer-on or pull-off needs a different fret on the same string right before it.',
+  slide: 'A slide needs a different fret on the same string right before it.',
+  vibrato: 'Put the cursor on a note to add vibrato.',
+  letRing: 'Put the cursor on a note to let it ring.',
+  dead: 'Put the cursor on a note to mute it.'
+};
+
+/** Switch a mark on or off for the current note(s). */
+export function setMark(doc: EditorDoc, mark: NoteMark, on: boolean, string?: number | null): void {
+  const target = markTarget(doc, string);
+  const notes = target ? applicable(doc, target, mark) : [];
+  if (!notes.length) throw new Error(MARK_HELP[mark]);
+  for (const note of notes) {
+    if (!on) {
+      delete note[mark];
+      continue;
+    }
+    note[mark] = true;
+    // A note continues from the one before in at most one way.
+    if ((CONNECTION_MARKS as readonly string[]).includes(mark)) {
+      for (const other of CONNECTION_MARKS) if (other !== mark) delete note[other];
+    }
+    if (mark === 'dead') {
+      for (const other of CONNECTION_MARKS) delete note[other];
+      delete note.letRing;
+      delete note.vibrato;
+      delete note.bend;
+    }
+  }
+  repairConnections(mainTrack(doc.song), barLengths(doc.song));
+}
+
+/** Toggle a mark: on unless every note it applies to already has it. */
+export function toggleMark(doc: EditorDoc, mark: NoteMark, string?: number | null): void {
+  setMark(doc, mark, !markState(doc, string).on[mark], string);
+}
+
+/** Tie (or untie) the current notes to the same fret right before them. */
+export function toggleTie(doc: EditorDoc): void {
+  toggleMark(doc, 'tie');
+}
+
+/** Set or remove (null) a bend on the current note(s). Muted notes are skipped. */
+export function setBend(doc: EditorDoc, bend: Bend | null, string?: number | null): void {
+  const target = markTarget(doc, string);
+  const notes = target?.notes.filter(n => !n.dead) ?? [];
+  if (!notes.length) throw new Error('Put the cursor on a note to bend it.');
+  for (const note of notes) {
+    if (bend) note.bend = { ...bend };
+    else delete note.bend;
+  }
+}
+
+/** Set or remove (null) the strum direction of the current chord. */
+export function setStroke(doc: EditorDoc, stroke: Stroke | null): void {
+  const target = markTarget(doc);
+  if (!target || !target.event.notes.length) throw new Error('Put the cursor on a chord to set its stroke.');
+  if (stroke) target.event.stroke = stroke;
+  else delete target.event.stroke;
 }

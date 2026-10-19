@@ -4,7 +4,7 @@
 import { endTick, layoutBars, tickToSeconds, type BarLayout } from './timeline';
 import { eventTicks } from './editing';
 import { noteMidi } from './pitch';
-import type { Accent, Song, TabEvent } from './song';
+import type { Accent, Bend, Song, TabEvent } from './song';
 
 export interface ScheduledNote {
   kind: 'note';
@@ -15,6 +15,12 @@ export interface ScheduledNote {
   string: number;
   /** A muted, percussive note. */
   dead?: boolean;
+  /** Hammer-on, pull-off or slide arrival: sounded without a new pick attack. */
+  legato?: boolean;
+  bend?: Bend;
+  vibrato?: boolean;
+  /** Slides into another note: glide this many semitones at the end. */
+  slideTo?: number;
 }
 
 export interface ScheduledClick {
@@ -63,6 +69,14 @@ export interface NoteSpan {
   endTick: number;
   dead: boolean;
   letRing: boolean;
+  /** Started by a hammer-on, pull-off or slide rather than a pick. */
+  legato: boolean;
+  bend?: Bend;
+  vibrato: boolean;
+  /** Pitch (MIDI) this note slides to as it ends. */
+  slideTo?: number;
+  /** Position in a strum: 0 is struck first. */
+  strokeOrder: number;
 }
 
 /**
@@ -75,6 +89,8 @@ export function noteSpans(song: Song, layout: BarLayout[] = layoutBars(song)): N
   if (!track) return [];
   const spans: NoteSpan[] = [];
   const open = new Map<number, NoteSpan>();
+  /** The last note on each string, ringing or not, for slides into the next note. */
+  const lastOnString = new Map<number, NoteSpan>();
   const close = (string: number, at?: number): void => {
     const span = open.get(string);
     if (!span) return;
@@ -86,6 +102,11 @@ export function noteSpans(song: Song, layout: BarLayout[] = layoutBars(song)): N
 
   for (const placed of placeEvents(song, layout)) {
     const struck = new Set<number>();
+    const { stroke } = placed.event;
+    // Strum order: a down stroke reaches the low strings (high string numbers) first.
+    const order = placed.event.notes.filter(n => !n.tie)
+      .map(n => n.string)
+      .sort((a, b) => (stroke === 'up' ? a - b : b - a));
     for (const note of placed.event.notes) {
       struck.add(note.string);
       const ringing = open.get(note.string);
@@ -95,15 +116,24 @@ export function noteSpans(song: Song, layout: BarLayout[] = layoutBars(song)): N
         continue;
       }
       close(note.string, placed.startTick);
-      open.set(note.string, {
+      const midi = noteMidi(track, note);
+      const before = lastOnString.get(note.string);
+      if (note.slide && before && before.endTick >= placed.startTick) before.slideTo = midi;
+      const span: NoteSpan = {
         string: note.string,
         fret: note.fret,
-        midi: noteMidi(track, note),
+        midi,
         startTick: placed.startTick,
         endTick: placed.endTick,
         dead: Boolean(note.dead),
-        letRing: Boolean(note.letRing) && !note.dead
-      });
+        letRing: Boolean(note.letRing) && !note.dead,
+        legato: Boolean(note.slur || note.slide),
+        vibrato: Boolean(note.vibrato),
+        strokeOrder: stroke ? Math.max(0, order.indexOf(note.string)) : 0
+      };
+      if (note.bend) span.bend = { ...note.bend };
+      open.set(note.string, span);
+      lastOnString.set(note.string, span);
     }
     // Strings not played now: ordinary notes have ended; let-ring notes carry on.
     for (const [string, span] of [...open]) {
@@ -130,18 +160,25 @@ export interface Schedule {
 
 /** Muted notes are a short percussive hit regardless of their written length. */
 const DEAD_NOTE_SECONDS = 0.05;
+/** Delay between strings in a strum. */
+export const STROKE_STEP_SECONDS = 0.012;
 
 export function buildSchedule(song: Song, options: { metronome: boolean }): Schedule {
   const layout = layoutBars(song);
   const spans = noteSpans(song, layout);
   const sounds: ScheduledSound[] = spans.map(span => {
-    const time = tickToSeconds(layout, span.startTick);
+    const offset = span.strokeOrder * STROKE_STEP_SECONDS;
+    const time = tickToSeconds(layout, span.startTick) + offset;
     const duration = tickToSeconds(layout, span.endTick) - time;
     const note: ScheduledNote = {
       kind: 'note', time, duration: span.dead ? Math.min(duration, DEAD_NOTE_SECONDS) : duration,
       midi: span.midi, string: span.string
     };
     if (span.dead) note.dead = true;
+    if (span.legato) note.legato = true;
+    if (span.bend) note.bend = { ...span.bend };
+    if (span.vibrato) note.vibrato = true;
+    if (span.slideTo !== undefined) note.slideTo = span.slideTo - span.midi;
     return note;
   });
 

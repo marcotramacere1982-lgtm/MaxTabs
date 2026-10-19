@@ -51,10 +51,14 @@
 - [x] Chord mode: build a chord in place on any strings; click a note again to remove it
 - [x] Muted notes ("x"): toggle, or click a string's name on the fretboard
 - [x] Let ring: notes sound until their string is played again; shown as dashed lines in the tab
+- [x] Hammer-on / pull-off (h/p written automatically), slides, bends (½–2, release), vibrato,
+      stroke direction; in the model, played back, drawn in the tab
+- [x] Technique entry in the tab: right-click / long-press menu, single-key shortcuts,
+      per-note selection inside chords; toolbar slimmed to Duration / Modify / Chord / Rest
 - [ ] Chord shape library / voicing finder for the chord at the cursor
 
 ## Later
-- [ ] Techniques (hammer-on, pull-off, slide, bend, vibrato, palm mute)
+- [ ] More techniques: palm mute, harmonics, tapping, pre-bends, slide in/out
 - [ ] Realistic guitar/bass sound
 - [ ] Tap tempo
 - [ ] Custom tuning editor (model already accepts any tuning)

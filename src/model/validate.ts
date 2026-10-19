@@ -134,7 +134,8 @@ export function validateSong(input: unknown): Song {
     check(Array.isArray(track.bars) && track.bars.length === bars.length, trackPath,
       'bar count does not match the timeline');
 
-    // The previous event, for checking ties: its end tick and the (sounding) notes it plays.
+    // The previous event, for checking ties, slurs and slides: its end tick and the
+    // (sounding) notes it plays.
     let previous: { end: number; notes: Map<number, number> } | null = null;
     let barStart = 0;
     track.bars.forEach((bar: unknown, b: number) => {
@@ -147,6 +148,7 @@ export function validateSong(input: unknown): Song {
         check(isObject(event), path, 'event must be an object');
         const ticks = checkDuration(event.duration, path);
         check(Array.isArray(event.notes) && event.notes.length <= tuning.length, path, 'invalid notes');
+        check(event.stroke === undefined || event.stroke === 'down' || event.stroke === 'up', path, 'invalid stroke');
         const notes = new Map<number, number>();
         for (const note of event.notes as unknown[]) {
           check(isObject(note) && isInt(note.string, 1, tuning.length), path, 'note on a missing string');
@@ -155,10 +157,27 @@ export function validateSong(input: unknown): Song {
           check(note.tie === undefined || typeof note.tie === 'boolean', path, 'invalid tie');
           check(note.dead === undefined || typeof note.dead === 'boolean', path, 'invalid muted flag');
           check(note.letRing === undefined || typeof note.letRing === 'boolean', path, 'invalid let-ring flag');
-          check(!(note.tie && note.dead), path, 'a muted note cannot be tied');
+          for (const flag of ['slur', 'slide', 'vibrato'] as const) {
+            check(note[flag] === undefined || typeof note[flag] === 'boolean', path, `invalid ${flag} flag`);
+          }
+          const connections = (['tie', 'slur', 'slide'] as const).filter(c => note[c]);
+          check(connections.length <= 1, path, 'a note can only be tied, slurred or slid, not several');
+          check(!(connections.length && note.dead), path, 'a muted note cannot be tied, slurred or slid');
+          if (note.bend !== undefined) {
+            const bend = note.bend;
+            check(isObject(bend) && typeof bend.semitones === 'number' && bend.semitones >= 0.25 &&
+              bend.semitones <= 4 && Number.isInteger(bend.semitones * 4) &&
+              (bend.release === undefined || typeof bend.release === 'boolean'), path, 'invalid bend');
+            check(!note.dead, path, 'a muted note cannot be bent');
+          }
+          const before = previous && previous.end === tick ? previous.notes.get(note.string) : undefined;
           if (note.tie) {
-            check(previous && previous.end === tick && previous.notes.get(note.string) === note.fret, path,
+            check(before === note.fret, path,
               'tied note must continue the same string and fret from the event just before it');
+          }
+          if (note.slur || note.slide) {
+            check(before !== undefined && before !== note.fret, path,
+              'a hammer-on, pull-off or slide needs a different fret on the same string just before it');
           }
           // Muted notes cannot be tied to, so they are left out.
           if (!note.dead) notes.set(note.string, note.fret);

@@ -1,4 +1,4 @@
-import { buildSchedule, type ScheduledSound } from '../model/schedule';
+import { buildSchedule, type ScheduledNote, type ScheduledSound } from '../model/schedule';
 import { secondsToTick } from '../model/timeline';
 import type { Song } from '../model/song';
 import { scheduleClick } from './metronome';
@@ -41,8 +41,13 @@ function register(source: AudioScheduledSourceNode, gain: GainNode): void {
   }, { once: true });
 }
 
-function note(ctx: AudioContext, midi: number, when: number, duration: number): void {
-  const { source, gain } = playPluck(ctx, midi, when, duration);
+function note(ctx: AudioContext, sound: ScheduledNote, when: number): void {
+  const { source, gain } = playPluck(ctx, sound.midi, when, sound.duration, {
+    legato: sound.legato,
+    bend: sound.bend,
+    vibrato: sound.vibrato,
+    slideTo: sound.slideTo
+  });
   register(source, gain);
 }
 
@@ -78,7 +83,7 @@ export async function playSong(song: Song, options: PlaybackOptions): Promise<bo
     while ((sound = sounds[next]) && start + sound.time < horizon) {
       next++;
       const when = Math.max(ctx.currentTime, start + sound.time);
-      if (sound.kind === 'note') note(ctx, sound.midi, when, sound.duration);
+      if (sound.kind === 'note') note(ctx, sound, when);
       else scheduleClick(ctx, when, sound.accent, options.clickVolume, register);
     }
     if (ctx.currentTime >= start + endSeconds + 0.02) {
