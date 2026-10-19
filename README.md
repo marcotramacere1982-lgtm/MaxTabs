@@ -33,4 +33,7 @@ npm run dev        # dev server at http://localhost:5173
 | `tests/manual-test-checklist.md` | Browser checks that unit tests cannot cover |
 | `docs/` | Architecture, decisions, roadmap |
 
+Pushing to `main` builds the app and publishes it to GitHub Pages
+(`.github/workflows/deploy-pages.yml`): https://marcotramacere1982-lgtm.github.io/MaxTabs/
+
 The pre-migration vanilla JS alpha is preserved at the git tag `alpha-concept`.
