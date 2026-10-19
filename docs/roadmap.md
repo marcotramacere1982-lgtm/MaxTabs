@@ -33,9 +33,11 @@
       dots, time signatures, chord symbols, ties, cursor and playhead
 - [x] Cursor navigation (click, ←/→) and in-place editing: overwrite, Shift+click chords,
       Delete/Backspace, Insert, duration change on the event under the cursor
-- [ ] Responsive, touch-friendly fretboard (scrolls sideways on phones; needs a phone-sized layout)
-- [ ] Overlay follows the harmony of the bar under the cursor (model ready; needs bar key/chord editing UI)
-- [ ] Tuplet and tie entry (model ready)
+- [x] Phone layout (3c): transport docked at the bottom, on-screen cursor and delete buttons
+- [ ] Fretboard on phones still scrolls sideways; consider a position window or vertical board
+- [x] Harmony panel (3c): key at the cursor, key changes per bar, chord symbols at the cursor
+- [x] Overlay follows the harmony under the cursor: scale degrees, chord tones, or both
+- [x] Triplet and dotted toggles for any note value; Tie (toggle, or hold the last note)
 
 ## Phase 4 — Audio
 - [ ] Voice interface between scheduler and sound source

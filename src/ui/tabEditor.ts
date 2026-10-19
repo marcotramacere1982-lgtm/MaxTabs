@@ -2,7 +2,8 @@
 // signatures, chord symbols, ties, the edit cursor and the playhead. Clicking places the cursor.
 
 import { mainTrack, type BarDef, type TabEvent } from '../model/song';
-import { stringsOf } from '../model/pitch';
+import { pitchClassName, stringsOf } from '../model/pitch';
+import { getScale } from '../model/scales';
 import { layoutBarDefs, type BarLayout } from '../model/timeline';
 import { cursorPosition } from '../model/editing';
 import { chordSymbol } from '../model/harmony';
@@ -131,6 +132,10 @@ export class TabView {
         }, g);
         const isVirtual = bar.index >= song.timeline.bars.length;
         text(g, x0 + 4, system.top + 10, String(bar.index + 1), isVirtual ? 'tab-barnum is-virtual' : 'tab-barnum');
+        if (bar.def.key) {
+          const scale = getScale(bar.def.key.scaleId);
+          text(g, x0 + 20, system.top + 10, `Key: ${pitchClassName(bar.def.key.tonic)} ${scale?.name ?? ''}`, 'tab-key');
+        }
         if (bar.showTime) this.drawTimeSignature(g, x0 + bar.contentX - TIME_SIGNATURE_WIDTH + 8, system, bar.bar);
         for (const change of bar.def.chords ?? []) {
           text(g, x0 + tickX(bar, bar.bar.startTick + change.tick) + 2, system.top + 22, chordSymbol(change.chord), 'tab-chord');

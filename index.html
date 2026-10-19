@@ -121,23 +121,20 @@
         <div class="chips" id="duration-chips" role="radiogroup" aria-labelledby="duration-label"></div>
       </div>
 
-      <button id="rest-button" class="btn" type="button">Rest</button>
-
-      <div class="toolbar-divider" aria-hidden="true"></div>
-
-      <label class="switch" for="scale-overlay-toggle">
-        <input id="scale-overlay-toggle" type="checkbox">
-        <span>Scale</span>
-      </label>
-
       <div class="field">
-        <label for="scale-tonic-select">Tonic</label>
-        <select id="scale-tonic-select"></select>
+        <span class="label">Modify</span>
+        <div class="chips">
+          <button id="dot-toggle" class="chip" type="button" aria-pressed="false" title="Dotted (half as long again)">·</button>
+          <button id="triplet-toggle" class="chip" type="button" aria-pressed="false" title="Triplet (3 in the time of 2)">3</button>
+        </div>
       </div>
 
       <div class="field">
-        <label for="scale-select">Scale</label>
-        <select id="scale-select"></select>
+        <span class="label">Add</span>
+        <div class="chips">
+          <button id="rest-button" class="btn" type="button" title="Rest (on a note: turn it into a rest)">Rest</button>
+          <button id="tie-button" class="btn" type="button" title="Tie the note at the cursor to the one before, or hold the last note longer">Tie</button>
+        </div>
       </div>
 
       <div class="topbar-spacer"></div>
@@ -147,6 +144,46 @@
         <button id="redo-button" class="btn" type="button" title="Redo (Ctrl+Y)">Redo</button>
         <button id="clear-button" class="btn" type="button">Clear</button>
       </div>
+    </section>
+
+    <section class="panel toolbar harmony-bar" aria-label="Harmony">
+      <div class="field">
+        <span class="label">Overlay</span>
+        <div class="inline">
+          <label class="switch" for="scale-overlay-toggle">
+            <input id="scale-overlay-toggle" type="checkbox">
+            <span class="visually-hidden">Show overlay</span>
+          </label>
+          <div class="seg" id="overlay-mode" role="group" aria-label="Overlay shows">
+            <button type="button" data-mode="scale">Scale</button>
+            <button type="button" data-mode="chord">Chord</button>
+            <button type="button" data-mode="both">Both</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="toolbar-divider" aria-hidden="true"></div>
+
+      <div class="field">
+        <label for="scale-tonic-select" id="key-label">Key</label>
+        <div class="inline">
+          <select id="scale-tonic-select" aria-label="Key tonic"></select>
+          <select id="scale-select" aria-label="Scale"></select>
+          <button id="key-change-button" class="btn" type="button">Key change here</button>
+        </div>
+      </div>
+
+      <div class="toolbar-divider" aria-hidden="true"></div>
+
+      <div class="field">
+        <label for="chord-root-select">Chord at cursor</label>
+        <div class="inline">
+          <select id="chord-root-select" aria-label="Chord root"></select>
+          <select id="chord-quality-select" aria-label="Chord quality"></select>
+        </div>
+      </div>
+
+      <p id="harmony-hint" class="hint harmony-hint"></p>
     </section>
 
     <section class="panel board-panel" aria-labelledby="fretboard-heading">
@@ -164,6 +201,11 @@
       <div class="panel-head">
         <h2 id="tab-heading">Tab</h2>
         <p id="cursor-display" class="hint cursor-display">Cursor: Bar 1, beat 1</p>
+        <div class="cursor-buttons" role="group" aria-label="Cursor">
+          <button id="cursor-prev" class="btn btn-icon" type="button" aria-label="Previous note (←)" title="Previous note (←)">‹</button>
+          <button id="cursor-next" class="btn btn-icon" type="button" aria-label="Next note (→)" title="Next note (→)">›</button>
+          <button id="delete-button" class="btn btn-icon" type="button" aria-label="Delete note at cursor (Delete)" title="Delete note at cursor (Delete)">⌫</button>
+        </div>
         <div class="topbar-spacer"></div>
         <div class="stepper" role="group" aria-label="Bars per row">
           <span class="hint">Bars per row</span>

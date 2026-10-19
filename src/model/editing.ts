@@ -346,3 +346,97 @@ export function currentEvent(doc: EditorDoc): TabEvent | undefined {
   const previous = previousEventPosition(doc);
   return previous && mainTrack(doc.song).bars[previous.bar]?.events[previous.index];
 }
+
+// ---------- Ties ----------
+
+/** The event right before a position, if it ends exactly where that position starts. */
+function adjacentPrevious(doc: EditorDoc, position: { bar: number; index: number }):
+  { bar: number; index: number } | undefined {
+  if (position.index > 0) return { bar: position.bar, index: position.index - 1 };
+  const previous = position.bar - 1;
+  const count = mainTrack(doc.song).bars[previous]?.events.length ?? 0;
+  return count > 0 && barIsFull(doc.song, previous) ? { bar: previous, index: count - 1 } : undefined;
+}
+
+function eventAt(doc: EditorDoc, position: { bar: number; index: number } | undefined): TabEvent | undefined {
+  return position && mainTrack(doc.song).bars[position.bar]?.events[position.index];
+}
+
+/**
+ * Tie (or untie) the current event's notes to the same string and fret in the event just before it.
+ * The current event is the one under the cursor, or the one just entered.
+ */
+export function toggleTie(doc: EditorDoc): void {
+  const position = eventAtCursor(doc) ? doc.cursor : previousEventPosition(doc);
+  const event = eventAt(doc, position);
+  if (!position || !event) throw new Error('Put the cursor on a note to tie it.');
+  const previous = eventAt(doc, adjacentPrevious(doc, position));
+  const tieable = event.notes.filter(n => previous?.notes.some(p => p.string === n.string && p.fret === n.fret));
+  if (!tieable.length) throw new Error('A tie joins a note to the same string and fret right before it.');
+  const untie = tieable.every(n => n.tie);
+  for (const note of tieable) {
+    if (untie) delete note.tie;
+    else note.tie = true;
+  }
+}
+
+/** Hold the notes just entered for another `duration`: append a tied copy of them at the cursor. */
+export function continueWithTie(doc: EditorDoc, duration: Duration): void {
+  if (eventAtCursor(doc)) throw new Error('Move the cursor to the end of the notes to extend the last one.');
+  const position = previousEventPosition(doc);
+  const previous = eventAt(doc, position);
+  if (!previous || previous.notes.length === 0) throw new Error('Enter a note first, then tie it to hold it longer.');
+  if (position && position.bar < doc.cursor.bar && !barIsFull(doc.song, position.bar))
+    throw new Error('A tie can only cross into the next bar from a full bar.');
+  insertEvent(doc, previous.notes.map(n => ({ string: n.string, fret: n.fret, tie: true })), duration);
+}
+
+// ---------- Harmony at the cursor ----------
+
+/** The bar whose key change is in effect at `barIndex`, or -1 when the song key applies. */
+export function keyOwnerBar(song: Song, barIndex: number): number {
+  for (let i = Math.min(barIndex, song.timeline.bars.length - 1); i >= 0; i--) {
+    if (song.timeline.bars[i]?.key) return i;
+  }
+  return -1;
+}
+
+/** Change the key in effect at the cursor (the song key, or the key change it falls under). */
+export function setKeyAtCursor(doc: EditorDoc, key: Key): void {
+  const owner = keyOwnerBar(doc.song, doc.cursor.bar);
+  if (owner >= 0) setBarKey(doc, owner, key);
+  else setSongKey(doc, key);
+}
+
+/** Make sure the cursor's bar exists (a free timeline grows), returning its index. */
+function ensureCursorBar(doc: EditorDoc): number {
+  if (doc.cursor.bar === doc.song.timeline.bars.length) {
+    if (!doc.song.timeline.extendable) throw new Error('The cursor is past the end of the chart.');
+    appendBar(doc.song);
+  }
+  return doc.cursor.bar;
+}
+
+/** Start a key change at the cursor's bar, beginning with `key`. */
+export function addKeyChangeAtCursor(doc: EditorDoc, key: Key): void {
+  setBarKey(doc, ensureCursorBar(doc), key);
+}
+
+export function removeKeyChangeAtCursor(doc: EditorDoc): void {
+  if (!doc.song.timeline.bars[doc.cursor.bar]?.key) throw new Error('This bar has no key change.');
+  setBarKey(doc, doc.cursor.bar, null);
+}
+
+/** Set (or with null remove) the chord symbol at the cursor's exact position. */
+export function setChordAtCursor(doc: EditorDoc, chord: Chord | null): void {
+  const position = cursorPosition(doc);
+  if (position.ended) throw new Error('The cursor is past the end of the chart.');
+  setChord(doc, ensureCursorBar(doc), position.tickInBar, chord);
+}
+
+/** The chord symbol written exactly at the cursor, if any (not one carried over from earlier). */
+export function chordAtCursor(doc: EditorDoc): Chord | undefined {
+  const position = cursorPosition(doc);
+  if (position.ended) return undefined;
+  return doc.song.timeline.bars[position.bar]?.chords?.find(c => c.tick === position.tickInBar)?.chord;
+}

@@ -76,7 +76,8 @@ describe('migration from v1', () => {
     expect(bars[1]?.events[0]?.notes).toEqual([{ string: 6, fret: 7 }]);
     expect(cursor).toEqual({ bar: 1, index: 1 });
     expect(loaded.view).toEqual({
-      fretCount: 15, barsPerRow: 4, overlayEnabled: true, metronomeEnabled: false, clickVolume: 0.2, duration: d(4)
+      fretCount: 15, barsPerRow: 4, overlayEnabled: true, overlayMode: 'scale', metronomeEnabled: false,
+      clickVolume: 0.2, duration: d(4)
     });
   });
 

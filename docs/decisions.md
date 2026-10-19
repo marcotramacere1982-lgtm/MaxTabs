@@ -90,3 +90,14 @@ chord (the event under the cursor, or the one just entered). Backspace removes t
 before the cursor; Insert adds a rest before it. Cursor moves are not undo steps
 (`History.amend`), but undo restores the cursor that went with each edit.
 Tab layout is width-driven: bars wrap to the window, "bars per row" is a maximum.
+
+## 2026-10-19 — Harmony editing and overlay (Phase 3c)
+- The key fields edit the key in effect at the cursor: the song key, or the key change the
+  cursor falls under. "Key change here" starts a new key at the cursor's bar.
+- Chord symbols are placed at the cursor's exact position in the bar and carry over until
+  the next one, like a lead sheet.
+- Overlay modes: Scale (degrees from the key), Chord (chord tones from the chord root), Both
+  (scale degrees, with chord tones tinted and labelled from the chord root). The overlay is
+  always computed at the cursor, so moving through the song moves the overlay.
+- Durations are a note value plus dotted and triplet toggles; any combination is allowed if
+  it is a whole number of ticks.

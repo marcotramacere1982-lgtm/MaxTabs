@@ -3,11 +3,12 @@
 // playback highlights and pluck animations live on a separate layer so they never restart it.
 
 import { getScale } from '../model/scales';
-import { mainTrack, type Key } from '../model/song';
+import { mainTrack } from '../model/song';
 import { midiToNoteName, pitchClassOf, stringsOf, type StringInfo } from '../model/pitch';
-import { harmonyAt } from '../model/harmony';
+import { chordPitchClasses, harmonyAt, intervalLabel, type Harmony } from '../model/harmony';
 import { currentEvent, cursorPosition } from '../model/editing';
 import type { FretPosition, FretboardNote, UiState } from './uiState';
+import type { OverlayMode } from '../io/projectFormat';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const WIDTH = 1200;
@@ -35,13 +36,13 @@ function svg<K extends keyof SVGElementTagNameMap>(name: K, attrs: Attrs = {}, p
   return node;
 }
 
-/** The key the overlay shows: the harmony in effect at the cursor. */
-export function overlayKey(ui: UiState): Key {
+/** The key and chord in effect at the cursor; the overlay shows these. */
+export function harmonyAtCursor(ui: Pick<UiState, 'doc'>): Harmony {
   const position = cursorPosition(ui.doc);
   const bars = ui.doc.song.timeline.bars.length;
   return position.ended
-    ? harmonyAt(ui.doc.song, bars - 1, Number.MAX_SAFE_INTEGER).key
-    : harmonyAt(ui.doc.song, position.bar, position.tickInBar).key;
+    ? harmonyAt(ui.doc.song, bars - 1, Number.MAX_SAFE_INTEGER)
+    : harmonyAt(ui.doc.song, position.bar, position.tickInBar);
 }
 
 interface StringRow extends StringInfo {
@@ -72,9 +73,10 @@ export class FretboardView {
   /** Redraw as needed for the current state. */
   update(ui: UiState): void {
     const tuning = mainTrack(ui.doc.song).tuning;
-    const key = ui.view.overlayEnabled ? overlayKey(ui) : null;
-    const structureKey = JSON.stringify([tuning, ui.view.fretCount, key]);
-    if (this.layout?.key !== structureKey) this.build(tuning, ui.view.fretCount, key, structureKey);
+    const harmony = ui.view.overlayEnabled ? harmonyAtCursor(ui) : null;
+    const mode = ui.view.overlayMode;
+    const structureKey = JSON.stringify([tuning, ui.view.fretCount, harmony, mode]);
+    if (this.layout?.key !== structureKey) this.build(tuning, ui.view.fretCount, harmony, mode, structureKey);
     this.updateDynamic(currentEvent(ui.doc)?.notes ?? [], ui.activeNotes);
   }
 
@@ -127,7 +129,8 @@ export class FretboardView {
     this.onNote({ string: row.number, fret, midi, noteName: midiToNoteName(midi) }, { chord: event.shiftKey });
   }
 
-  private build(tuning: number[], fretCount: number, key: Key | null, structureKey: string): void {
+  private build(tuning: number[], fretCount: number, harmony: Harmony | null, mode: OverlayMode,
+    structureKey: string): void {
     const strings = stringsOf(tuning);
     const count = strings.length;
     const gap = count >= 7 ? 26 : count === 6 ? 30 : count === 5 ? 32 : 34;
@@ -202,7 +205,7 @@ export class FretboardView {
       rows.push({ ...string, y, group });
     });
 
-    if (key) this.drawScale(rows, fretCount, key);
+    if (harmony) this.drawOverlay(rows, fretCount, harmony, mode);
 
     const layout = this.layout;
     layout.rows = rows;
@@ -224,19 +227,35 @@ export class FretboardView {
     }
   }
 
-  private drawScale(rows: StringRow[], fretCount: number, key: Key): void {
-    const scale = getScale(key.scaleId);
-    if (!scale) return;
+  /**
+   * Scale mode: scale degrees, tonic highlighted. Chord mode: chord tones labelled from the chord
+   * root. Both: scale degrees, with chord tones tinted and labelled as chord tones.
+   */
+  private drawOverlay(rows: StringRow[], fretCount: number, harmony: Harmony, mode: OverlayMode): void {
+    const scale = mode === 'chord' ? undefined : getScale(harmony.key.scaleId);
+    const chord = mode === 'scale' ? null : harmony.chord;
+    const chordTones = new Set(chord ? chordPitchClasses(chord) : []);
     const group = svg('g', {}, this.root);
     for (const row of rows) {
       for (let f = 0; f <= fretCount; f++) {
-        const interval = (pitchClassOf(row.midi + f) - key.tonic + 12) % 12;
-        const degree = scale.degrees[scale.intervals.indexOf(interval)];
-        if (degree === undefined) continue;
+        const pc = pitchClassOf(row.midi + f);
+        const scaleInterval = (pc - harmony.key.tonic + 12) % 12;
+        const degree = scale?.degrees[scale.intervals.indexOf(scaleInterval)];
+        const isChordTone = chordTones.has(pc);
+        if (degree === undefined && !isChordTone) continue;
+        const chordInterval = chord ? (pc - chord.root + 12) % 12 : -1;
+        let className = 'fb-tone';
+        let label = degree ?? '';
+        if (isChordTone) {
+          className += chordInterval === 0 ? ' is-root' : ' is-chord';
+          label = intervalLabel(chordInterval);
+        } else if (!chord && scaleInterval === 0) {
+          className += ' is-root';
+        }
         const x = this.noteX(f);
-        const tone = svg('g', { class: interval === 0 ? 'fb-tone is-root' : 'fb-tone' }, group);
+        const tone = svg('g', { class: className }, group);
         svg('circle', { cx: x, cy: row.y, r: 10.5 }, tone);
-        svg('text', { x, y: row.y + 0.5 }, tone).textContent = degree;
+        svg('text', { x, y: row.y + 0.5 }, tone).textContent = label;
       }
     }
   }

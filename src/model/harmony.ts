@@ -52,6 +52,13 @@ export function chordSymbol(chord: Chord, preferFlats = false): string {
   return `${pitchClassName(chord.root, preferFlats)}${quality?.symbol ?? '?'}${bass}`;
 }
 
+const INTERVAL_LABELS = ['R', '♭2', '2', '♭3', '3', '4', '♭5', '5', '♯5', '6', '♭7', '7'];
+
+/** Label for a note's interval above a chord or key root: "R", "♭3", "5"… */
+export function intervalLabel(semitones: number): string {
+  return INTERVAL_LABELS[pitchClassOf(semitones)] ?? '?';
+}
+
 export interface Harmony {
   key: Key;
   chord: Chord | null;

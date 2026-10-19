@@ -1,6 +1,6 @@
 // Project files: format v2 (current) and migration from v1 (the slot-based alpha).
 
-import { isNoteValue, type Duration } from '../model/time';
+import { isNoteValue, tryDurationTicks, type Duration } from '../model/time';
 import { validateCursor, validateSong } from '../model/validate';
 import type { EditorDoc } from '../model/song';
 import { migrateV1 } from './projectV1';
@@ -9,11 +9,16 @@ import { resolveLegacyInstrument } from '../model/instruments';
 export const PROJECT_FORMAT = 'maxtabs-project';
 export const PROJECT_VERSION = 2;
 
+/** What the fretboard overlay shows: scale degrees, chord tones, or both. */
+export type OverlayMode = 'scale' | 'chord' | 'both';
+export const OVERLAY_MODES: readonly OverlayMode[] = ['scale', 'chord', 'both'];
+
 /** Editor preferences saved with a project but not part of the undoable document. */
 export interface ViewPrefs {
   fretCount: number;
   barsPerRow: number;
   overlayEnabled: boolean;
+  overlayMode: OverlayMode;
   metronomeEnabled: boolean;
   clickVolume: number;
   duration: Duration;
@@ -26,6 +31,7 @@ export function defaultViewPrefs(): ViewPrefs {
     fretCount: 15,
     barsPerRow: 4,
     overlayEnabled: false,
+    overlayMode: 'scale',
     metronomeEnabled: true,
     clickVolume: 0.3,
     duration: { value: 8, dots: 0 }
@@ -95,11 +101,18 @@ function parseViewPrefs(input: unknown): ViewPrefs {
   if (Number.isInteger(raw.barsPerRow) && (raw.barsPerRow as number) >= 1 && (raw.barsPerRow as number) <= 8)
     view.barsPerRow = raw.barsPerRow as number;
   if (typeof raw.overlayEnabled === 'boolean') view.overlayEnabled = raw.overlayEnabled;
+  if (OVERLAY_MODES.includes(raw.overlayMode as OverlayMode)) view.overlayMode = raw.overlayMode as OverlayMode;
   if (typeof raw.metronomeEnabled === 'boolean') view.metronomeEnabled = raw.metronomeEnabled;
   if (typeof raw.clickVolume === 'number' && raw.clickVolume >= 0 && raw.clickVolume <= 0.6)
     view.clickVolume = raw.clickVolume;
   const duration = raw.duration as Partial<Duration> | undefined;
-  if (duration && isNoteValue(duration.value) && (duration.dots === 0 || duration.dots === 1 || duration.dots === 2))
-    view.duration = { value: duration.value, dots: duration.dots };
+  if (duration && isNoteValue(duration.value) && (duration.dots === 0 || duration.dots === 1 || duration.dots === 2)) {
+    const parsed: Duration = { value: duration.value, dots: duration.dots };
+    const tuplet = duration.tuplet;
+    if (tuplet && Number.isInteger(tuplet.actual) && Number.isInteger(tuplet.normal)) {
+      parsed.tuplet = { actual: tuplet.actual, normal: tuplet.normal };
+    }
+    if (tryDurationTicks(parsed) !== null) view.duration = parsed;
+  }
   return view;
 }

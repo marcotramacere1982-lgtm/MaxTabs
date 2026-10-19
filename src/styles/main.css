@@ -42,6 +42,8 @@
   --tone-ink: #3A2A1E;
   --root: #D98B6F;
   --root-ink: #FFFFFF;
+  --chord-tone: #F2C4AE;
+  --chord-ink: #4A2414;
   --press: #FFD27A;
   --select-ring: #FFFFFF;
 
@@ -534,9 +536,23 @@ input:disabled {
   background: var(--line);
 }
 
-.history {
+.history,
+.inline,
+.cursor-buttons {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+}
+
+.chip[aria-pressed="true"] {
+  color: var(--accent-ink);
+  box-shadow: var(--sh-in-sm);
+}
+
+.harmony-hint {
+  flex: 1 1 14rem;
+  align-self: center;
 }
 
 /* ---------- Fretboard ---------- */
@@ -626,6 +642,14 @@ input:disabled {
   font: 700 10.5px var(--mono);
   text-anchor: middle;
   dominant-baseline: central;
+}
+
+.fb-tone.is-chord circle {
+  fill: var(--chord-tone);
+}
+
+.fb-tone.is-chord text {
+  fill: var(--chord-ink);
 }
 
 .fb-tone.is-root circle {
@@ -725,6 +749,11 @@ input:disabled {
 
 .tab-barnum.is-virtual {
   opacity: .5;
+}
+
+.tab-key {
+  fill: var(--muted);
+  font: 600 11px var(--ui);
 }
 
 .tab-chord {
@@ -883,15 +912,29 @@ input:disabled {
     border-radius: var(--radius-md);
   }
 
+  /* Transport docks to the bottom of the screen, within thumb reach. */
+  .app {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .transport {
+    position: fixed;
+    z-index: 15;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    justify-content: space-between;
+    padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+    background: var(--surface);
+    box-shadow: 0 -6px 18px var(--sh1);
+  }
+
   .topbar .field,
   .project-field input {
     flex: 1 1 9rem;
     width: auto;
   }
 
-  .transport {
-    flex: 1 1 100%;
-  }
 
   .toolbar-divider {
     display: none;

@@ -14,7 +14,7 @@ import {
 import { midiToNoteName, noteMidi, pitchClassName, pitchClassOf } from './model/pitch';
 import type { RemapReport } from './model/remap';
 import { SCALES, TONICS } from './model/scales';
-import { durationCode, durationName, parseDurationCode, type Duration } from './model/time';
+import { durationName, TRIPLET, type Duration, type NoteValue } from './model/time';
 import {
   addNoteToChord,
   clearNotes,
@@ -31,15 +31,23 @@ import {
   setCursor,
   setDurationAtCursor,
   setInstrument,
-  setSongKey,
   setTempoBpm,
-  writeAtCursor
+  writeAtCursor,
+  addKeyChangeAtCursor,
+  chordAtCursor,
+  continueWithTie,
+  keyOwnerBar,
+  removeKeyChangeAtCursor,
+  setChordAtCursor,
+  setKeyAtCursor,
+  toggleTie
 } from './model/editing';
+import { CHORD_QUALITIES, chordSymbol } from './model/harmony';
 import { subdivisionLabel } from './model/timeline';
 import { eventAtTick, placeEvents, type PlacedEvent } from './model/schedule';
 import { importMetronomo } from './io/metronomoComposto';
-import { defaultViewPrefs, type LoadedProject } from './io/projectFormat';
-import { FretboardView } from './ui/fretboard';
+import { defaultViewPrefs, type LoadedProject, type OverlayMode } from './io/projectFormat';
+import { FretboardView, harmonyAtCursor } from './ui/fretboard';
 import { TabView } from './ui/tabEditor';
 import { setupProjectFiles } from './ui/projectFiles';
 import { setupMenu } from './ui/menu';
@@ -50,17 +58,14 @@ import type { FretboardNote, UiState } from './ui/uiState';
 import { playPreviewNote, playSong, stopPlayback } from './audio/playback';
 import { errorMessage } from './errors';
 
-/** Durations offered in the editor, longest first, with their chip labels. */
-const DURATION_CHOICES: { duration: Duration; label: string }[] = [
-  { duration: { value: 1, dots: 0 }, label: '1' },
-  { duration: { value: 2, dots: 1 }, label: '½.' },
-  { duration: { value: 2, dots: 0 }, label: '½' },
-  { duration: { value: 4, dots: 1 }, label: '¼.' },
-  { duration: { value: 4, dots: 0 }, label: '¼' },
-  { duration: { value: 8, dots: 1 }, label: '⅛.' },
-  { duration: { value: 8, dots: 0 }, label: '⅛' },
-  { duration: { value: 16, dots: 0 }, label: '1/16' },
-  { duration: { value: 32, dots: 0 }, label: '1/32' }
+/** Note values offered in the editor, longest first, with their chip labels. */
+const VALUE_CHOICES: { value: NoteValue; label: string }[] = [
+  { value: 1, label: '1' },
+  { value: 2, label: '½' },
+  { value: 4, label: '¼' },
+  { value: 8, label: '⅛' },
+  { value: 16, label: '1/16' },
+  { value: 32, label: '1/32' }
 ];
 
 const history = new History<EditorDoc>(
@@ -90,12 +95,24 @@ const elements = {
   fretCountSelect: byId<HTMLSelectElement>('fret-count'),
 
   scaleOverlayToggle: byId<HTMLInputElement>('scale-overlay-toggle'),
+  overlayMode: byId('overlay-mode'),
   scaleTonicSelect: byId<HTMLSelectElement>('scale-tonic-select'),
   scaleSelect: byId<HTMLSelectElement>('scale-select'),
+  keyLabel: byId<HTMLLabelElement>('key-label'),
+  keyChangeButton: byId<HTMLButtonElement>('key-change-button'),
+  chordRootSelect: byId<HTMLSelectElement>('chord-root-select'),
+  chordQualitySelect: byId<HTMLSelectElement>('chord-quality-select'),
+  harmonyHint: byId('harmony-hint'),
 
   durationChips: byId('duration-chips'),
+  dotToggle: byId<HTMLButtonElement>('dot-toggle'),
+  tripletToggle: byId<HTMLButtonElement>('triplet-toggle'),
   restButton: byId<HTMLButtonElement>('rest-button'),
+  tieButton: byId<HTMLButtonElement>('tie-button'),
   cursorDisplay: byId('cursor-display'),
+  cursorPrev: byId<HTMLButtonElement>('cursor-prev'),
+  cursorNext: byId<HTMLButtonElement>('cursor-next'),
+  deleteButton: byId<HTMLButtonElement>('delete-button'),
 
   undoButton: byId<HTMLButtonElement>('undo-button'),
   redoButton: byId<HTMLButtonElement>('redo-button'),
@@ -150,22 +167,38 @@ function init(): void {
 
   elements.scaleOverlayToggle.addEventListener('change', () => {
     ui.view.overlayEnabled = elements.scaleOverlayToggle.checked;
-    updateScaleControlAvailability();
+    renderHarmonyControls();
+    renderFretboardOnly();
+  });
+  elements.overlayMode.addEventListener('click', event => {
+    const button = (event.target as Element).closest<HTMLButtonElement>('button[data-mode]');
+    if (!button) return;
+    ui.view.overlayMode = button.dataset.mode as OverlayMode;
+    ui.view.overlayEnabled = true;
+    renderHarmonyControls();
     renderFretboardOnly();
   });
   elements.scaleTonicSelect.addEventListener('change', handleKeyChange);
   elements.scaleSelect.addEventListener('change', handleKeyChange);
+  elements.keyChangeButton.addEventListener('click', handleKeyChangeButton);
+  elements.chordRootSelect.addEventListener('change', handleChordChange);
+  elements.chordQualitySelect.addEventListener('change', handleChordChange);
 
   elements.durationChips.addEventListener('click', event => {
     const chip = (event.target as Element).closest<HTMLButtonElement>('.chip');
     if (!chip || chip.disabled) return;
-    const duration = parseDurationCode(chip.value);
-    ui.view.duration = duration;
-    // On an existing note or rest, the chip changes that event's duration too.
-    if (eventAtCursor(history.present) && !isPlaying) edit(doc => setDurationAtCursor(doc, duration));
-    renderApp();
+    changeDuration(d => ({ ...d, value: Number(chip.value) as NoteValue }));
   });
+  elements.dotToggle.addEventListener('click', () => changeDuration(d => ({ ...d, dots: d.dots ? 0 : 1 })));
+  elements.tripletToggle.addEventListener('click', () => changeDuration(d => {
+    const { tuplet, ...rest } = d;
+    return tuplet ? rest : { ...rest, tuplet: { ...TRIPLET } };
+  }));
   elements.restButton.addEventListener('click', () => write([], false));
+  elements.tieButton.addEventListener('click', handleTie);
+  elements.cursorPrev.addEventListener('click', () => runEditingKey('ArrowLeft'));
+  elements.cursorNext.addEventListener('click', () => runEditingKey('ArrowRight'));
+  elements.deleteButton.addEventListener('click', () => runEditingKey('Delete'));
   elements.undoButton.addEventListener('click', handleUndo);
   elements.redoButton.addEventListener('click', handleRedo);
   elements.clearButton.addEventListener('click', handleClear);
@@ -204,16 +237,25 @@ function populateControls(): void {
     elements.instrumentSelect.append(new Option(instrument.name, instrument.id));
   }
 
-  for (const { duration, label } of DURATION_CHOICES) {
+  for (const { value, label } of VALUE_CHOICES) {
     const chip = document.createElement('button');
+    const name = durationName({ value, dots: 0 });
     chip.type = 'button';
     chip.className = 'chip';
-    chip.value = durationCode(duration);
+    chip.value = String(value);
     chip.textContent = label;
-    chip.title = durationName(duration);
+    chip.title = name;
     chip.setAttribute('role', 'radio');
-    chip.setAttribute('aria-label', durationName(duration));
+    chip.setAttribute('aria-label', name);
     elements.durationChips.append(chip);
+  }
+
+  elements.chordRootSelect.append(new Option('—', ''));
+  for (const tonic of TONICS) {
+    elements.chordRootSelect.append(new Option(tonic.label, String(tonic.pitchClass)));
+  }
+  for (const quality of CHORD_QUALITIES) {
+    elements.chordQualitySelect.append(new Option(quality.symbol ? `${quality.symbol} · ${quality.name}` : quality.name, quality.id));
   }
 
   for (const tonic of TONICS) {
@@ -246,18 +288,36 @@ function syncControlsFromState(): void {
     ? 'BPM'
     : `BPM (1/${song.tempo.unit}${song.tempo.dotted ? ' dotted' : ''})`;
   elements.scaleOverlayToggle.checked = ui.view.overlayEnabled;
-  elements.scaleTonicSelect.value = String(song.key.tonic);
-  elements.scaleSelect.value = song.key.scaleId;
   elements.metronomeToggle.checked = ui.view.metronomeEnabled;
   elements.clickVolume.value = String(ui.view.clickVolume);
 }
 
+/** The duration shown in the chips: the event under the cursor's, or the one the next note gets. */
+function shownDuration(): Duration {
+  return eventAtCursor(history.present)?.duration ?? ui.view.duration;
+}
+
 function markDurationChips(): void {
-  // Show the duration of the event under the cursor, or the one the next note will get.
-  const current = durationCode(eventAtCursor(history.present)?.duration ?? ui.view.duration);
+  const current = shownDuration();
   for (const chip of elements.durationChips.querySelectorAll<HTMLButtonElement>('.chip')) {
-    chip.setAttribute('aria-checked', String(chip.value === current));
+    chip.setAttribute('aria-checked', String(Number(chip.value) === current.value));
   }
+  elements.dotToggle.setAttribute('aria-pressed', String(current.dots > 0));
+  elements.tripletToggle.setAttribute('aria-pressed', String(Boolean(current.tuplet)));
+}
+
+/** Change the next note's duration, and the duration of the event under the cursor if there is one. */
+function changeDuration(change: (duration: Duration) => Duration): void {
+  if (isPlaying) return;
+  const duration = change(shownDuration());
+  if (eventAtCursor(history.present)) {
+    if (!edit(doc => setDurationAtCursor(doc, duration))) {
+      renderApp();
+      return;
+    }
+  }
+  ui.view.duration = duration;
+  renderApp();
 }
 
 function renderApp(): void {
@@ -266,7 +326,41 @@ function renderApp(): void {
   renderSelectedNote();
   renderCursorPosition();
   markDurationChips();
+  renderHarmonyControls();
   updateControls();
+}
+
+/** Show the key and chord at the cursor in the harmony panel. */
+function renderHarmonyControls(): void {
+  const doc = history.present;
+  const harmony = harmonyAtCursor(ui);
+  const cursorBar = doc.cursor.bar;
+  const owner = keyOwnerBar(doc.song, cursorBar);
+  elements.scaleTonicSelect.value = String(harmony.key.tonic);
+  elements.scaleSelect.value = harmony.key.scaleId;
+  elements.keyLabel.textContent = owner >= 0 ? `Key (from bar ${owner + 1})` : 'Key';
+  const hasKeyChange = Boolean(doc.song.timeline.bars[cursorBar]?.key);
+  elements.keyChangeButton.textContent = hasKeyChange ? 'Remove key change' : 'Key change here';
+  elements.keyChangeButton.disabled = isPlaying || cursorPosition(doc).ended || (cursorBar === 0 && !hasKeyChange);
+
+  const chord = chordAtCursor(doc);
+  elements.chordRootSelect.value = chord ? String(chord.root) : '';
+  elements.chordQualitySelect.value = chord?.quality ?? elements.chordQualitySelect.value ?? 'maj';
+  elements.chordQualitySelect.disabled = isPlaying || !chord;
+  elements.chordRootSelect.disabled = isPlaying || cursorPosition(doc).ended;
+
+  elements.scaleOverlayToggle.checked = ui.view.overlayEnabled;
+  for (const button of elements.overlayMode.querySelectorAll<HTMLButtonElement>('button[data-mode]')) {
+    button.setAttribute('aria-pressed', String(ui.view.overlayEnabled && button.dataset.mode === ui.view.overlayMode));
+  }
+  elements.harmonyHint.textContent = harmonyHint(harmony.chord, Boolean(chord));
+}
+
+function harmonyHint(current: ReturnType<typeof harmonyAtCursor>['chord'], chordHere: boolean): string {
+  if (current && !chordHere) return `${chordSymbol(current)} continues from earlier. Pick a root to change chord here.`;
+  if (!current && ui.view.overlayEnabled && ui.view.overlayMode !== 'scale')
+    return 'No chord yet: pick a root to place one at the cursor.';
+  return '';
 }
 
 function renderFretboardOnly(): void {
@@ -375,13 +469,41 @@ async function changeInstrument(instrumentId: string, notes: readonly number[]):
   renderApp();
 }
 
+function selectedKey(): { tonic: number; scaleId: string } {
+  return { tonic: Number(elements.scaleTonicSelect.value), scaleId: elements.scaleSelect.value };
+}
+
 function handleKeyChange(): void {
-  edit(doc => setSongKey(doc, {
-    tonic: Number(elements.scaleTonicSelect.value),
-    scaleId: elements.scaleSelect.value
-  }));
-  renderFretboardOnly();
-  updateControls();
+  if (!isPlaying) edit(doc => setKeyAtCursor(doc, selectedKey()));
+  renderApp();
+}
+
+function handleKeyChangeButton(): void {
+  if (isPlaying) return;
+  const hasKeyChange = Boolean(history.present.song.timeline.bars[history.present.cursor.bar]?.key);
+  if (edit(doc => (hasKeyChange ? removeKeyChangeAtCursor(doc) : addKeyChangeAtCursor(doc, selectedKey())))) {
+    elements.playbackStatus.textContent = hasKeyChange
+      ? 'Key change removed.'
+      : 'Key change added: the key fields now set the key from this bar on.';
+  }
+  renderApp();
+}
+
+function handleChordChange(): void {
+  if (isPlaying) return;
+  const root = elements.chordRootSelect.value;
+  const quality = elements.chordQualitySelect.value || 'maj';
+  edit(doc => setChordAtCursor(doc, root === '' ? null : { root: Number(root), quality }));
+  renderApp();
+}
+
+function handleTie(): void {
+  if (isPlaying) return;
+  const onEvent = Boolean(eventAtCursor(history.present));
+  if (edit(doc => (onEvent ? toggleTie(doc) : continueWithTie(doc, ui.view.duration)))) {
+    elements.playbackStatus.textContent = 'Ready';
+  }
+  renderApp();
 }
 
 function handleUndo(): void {
@@ -426,24 +548,29 @@ function handleShortcut(event: KeyboardEvent): void {
 
 /** Cursor and editing keys: arrows move, Delete/Backspace remove, Insert adds a rest before the cursor. */
 function handleEditingKey(event: KeyboardEvent): void {
-  if (isPlaying) return;
+  if (runEditingKey(event.key)) event.preventDefault();
+}
+
+/** Run an editing key's action; returns false for keys that are not editing keys. */
+function runEditingKey(key: string): boolean {
+  if (isPlaying) return false;
   let change: ((doc: EditorDoc) => void) | null = null;
   let recorded = true;
-  switch (event.key) {
+  switch (key) {
     case 'ArrowRight': change = doc => moveCursor(doc, 1); recorded = false; break;
     case 'ArrowLeft': change = doc => moveCursor(doc, -1); recorded = false; break;
     case 'Delete': change = deleteAtCursor; break;
     case 'Backspace': change = deleteBeforeCursor; break;
     case 'Insert': change = doc => insertEvent(doc, [], ui.view.duration); break;
-    default: return;
+    default: return false;
   }
-  event.preventDefault();
   if (recorded) {
     if (edit(change)) elements.playbackStatus.textContent = 'Ready';
   } else {
     history.amend(change);
   }
   renderApp();
+  return true;
 }
 
 function handleProjectLoaded(project: LoadedProject): void {
@@ -571,6 +698,12 @@ function updateControls(): void {
   elements.redoButton.disabled = !history.canRedo || isPlaying;
   elements.clearButton.disabled = !notes || isPlaying;
   elements.restButton.disabled = isPlaying;
+  elements.tieButton.disabled = isPlaying;
+  elements.dotToggle.disabled = isPlaying;
+  elements.tripletToggle.disabled = isPlaying;
+  elements.cursorPrev.disabled = isPlaying;
+  elements.cursorNext.disabled = isPlaying;
+  elements.deleteButton.disabled = isPlaying || !eventAtCursor(history.present);
 
   elements.playButton.classList.toggle('is-playing', isPlaying);
   elements.playButton.setAttribute('aria-label', isPlaying ? 'Stop' : 'Play');
@@ -597,9 +730,8 @@ function updateControls(): void {
 }
 
 function updateScaleControlAvailability(): void {
-  const disabled = !ui.view.overlayEnabled || isPlaying;
-  elements.scaleTonicSelect.disabled = disabled;
-  elements.scaleSelect.disabled = disabled;
+  elements.scaleTonicSelect.disabled = isPlaying;
+  elements.scaleSelect.disabled = isPlaying;
 }
 
 function changeBarsPerRow(change: number): void {

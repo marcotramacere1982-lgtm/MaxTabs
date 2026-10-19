@@ -155,6 +155,7 @@ export function migrateV1(input: unknown): Omit<LoadedProject, 'migratedFrom'> {
       fretCount: p.fretCount,
       barsPerRow: p.barsPerRow,
       overlayEnabled: overlay.enabled,
+      overlayMode: 'scale',
       metronomeEnabled: p.metronomeEnabled,
       clickVolume: p.clickVolume,
       duration: { value: SLOT_DURATIONS[p.selectedDurationSlots] as NoteValue, dots: 0 }

@@ -28,6 +28,13 @@ Browser behaviour that unit tests cannot cover. Run with `npm run dev`.
 - [ ] A duration chip changes the note under the cursor when the bar has room.
 - [ ] Rhythm: eighths and shorter are beamed per beat; rests and dots are drawn; rows wrap with the window.
 
+## Harmony and rhythm entry
+- [ ] Key fields show the key at the cursor; "Key change here" starts a new key from that bar.
+- [ ] Chord at cursor places a symbol at the cursor's beat; the overlay follows it in Chord and Both modes.
+- [ ] Triplet toggle: three triplet eighths fill one beat and get a "3" under the beam.
+- [ ] Tie: on a note it toggles the tie to the same fret before it; at the end it holds the last note.
+- [ ] Phone: transport stays docked at the bottom; ‹ › ⌫ buttons move and delete.
+
 ## Undo / redo
 - [ ] Undo/Redo buttons and Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z work; Ctrl+Z in the title field edits text.
 - [ ] Instrument change with a different string count clears notes; Undo brings them back.
